@@ -1,26 +1,35 @@
 from __future__ import annotations
 
+import datetime
 import json
 import mimetypes
 
 from http import HTTPStatus
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
 from core.config import LAYOUT_DIR, STATIC_DIR
 
+from core.sessions import (
+    COOKIE_NAME,
+    get_or_create as session_get_or_create,
+    set_theme as session_set_theme,
+    set_language as session_set_language,
+)
+
 from modules.theme_manager import (
     get_available_themes,
-    get_current_theme,
     read_theme_css,
-    set_current_theme,
+    resolve_theme,
+    validate_theme,
 )
 
 from modules.language_manager import (
     get_available_languages,
-    get_current_language,
-    set_current_language,
+    resolve_language,
+    validate_language,
 )
 
 from modules.training_form import (
@@ -51,6 +60,20 @@ CONTENT_TYPES = {
     ".jpeg": "image/jpeg",
     ".ico": "image/x-icon",
 }
+
+
+def _set_session_cookie(
+    handler: BaseHTTPRequestHandler,
+    session_id: str,
+) -> None:
+    expires = (
+        datetime.datetime.utcnow()
+        + datetime.timedelta(days=365)
+    ).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    handler.send_header(
+        "Set-Cookie",
+        f"{COOKIE_NAME}={session_id}; Path=/; HttpOnly; SameSite=Lax; Expires={expires}",
+    )
 
 
 def json_bytes(data: object) -> bytes:
@@ -89,6 +112,7 @@ def send_json(
     handler: BaseHTTPRequestHandler,
     status: int,
     data: object,
+    session_id: str | None = None,
 ) -> None:
 
     payload = json_bytes(data)
@@ -105,6 +129,9 @@ def send_json(
         str(len(payload)),
     )
 
+    if session_id:
+        _set_session_cookie(handler, session_id)
+
     handler.end_headers()
 
     handler.wfile.write(payload)
@@ -115,6 +142,7 @@ def send_text(
     status: int,
     text: str,
     content_type: str,
+    session_id: str | None = None,
 ) -> None:
 
     payload = text.encode("utf-8")
@@ -130,6 +158,9 @@ def send_text(
         "Content-Length",
         str(len(payload)),
     )
+
+    if session_id:
+        _set_session_cookie(handler, session_id)
 
     handler.end_headers()
 
@@ -164,11 +195,24 @@ class TrainHandler(BaseHTTPRequestHandler):
 
     server_version = "OphiocordycepsTrainHTTP/3.0"
 
+    def _resolve_session(self) -> tuple[str, dict]:
+        cookie_header = self.headers.get("Cookie", "")
+        cookies = SimpleCookie(cookie_header)
+        existing = cookies.get(COOKIE_NAME)
+        sid, config = session_get_or_create(
+            existing.value if existing else None
+        )
+        self._session_id = sid
+        self._session_config = config
+        return sid, config
+
     def do_GET(self) -> None:
 
         parsed = urlparse(self.path)
 
         path = parsed.path
+
+        sid, session_config = self._resolve_session()
 
         if path in (
             "/",
@@ -186,6 +230,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 html,
                 "text/html; charset=utf-8",
+                session_id=sid,
             )
 
             return
@@ -196,9 +241,10 @@ class TrainHandler(BaseHTTPRequestHandler):
                 self,
                 HTTPStatus.OK,
                 {
-                    "theme": get_current_theme(),
+                    "theme": resolve_theme(session_config),
                     "available": get_available_themes(),
                 },
+                session_id=sid,
             )
 
             return
@@ -209,9 +255,10 @@ class TrainHandler(BaseHTTPRequestHandler):
                 self,
                 HTTPStatus.OK,
                 {
-                    "language": get_current_language(),
+                    "language": resolve_language(session_config),
                     "available": get_available_languages(),
                 },
+                session_id=sid,
             )
 
             return
@@ -222,6 +269,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                 self,
                 HTTPStatus.OK,
                 get_training_form(),
+                session_id=sid,
             )
 
             return
@@ -232,6 +280,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                 self,
                 HTTPStatus.OK,
                 get_training_output(),
+                session_id=sid,
             )
 
             return
@@ -242,6 +291,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                 self,
                 HTTPStatus.OK,
                 list_models(),
+                session_id=sid,
             )
 
             return
@@ -251,8 +301,9 @@ class TrainHandler(BaseHTTPRequestHandler):
             send_text(
                 self,
                 HTTPStatus.OK,
-                read_theme_css(),
+                read_theme_css(resolve_theme(session_config)),
                 "text/css; charset=utf-8",
+                session_id=sid,
             )
 
             return
@@ -296,6 +347,8 @@ class TrainHandler(BaseHTTPRequestHandler):
                 str(len(data)),
             )
 
+            _set_session_cookie(self, sid)
+
             self.end_headers()
 
             self.wfile.write(data)
@@ -313,18 +366,22 @@ class TrainHandler(BaseHTTPRequestHandler):
 
         path = parsed.path
 
+        sid, session_config = self._resolve_session()
+
         try:
 
             payload = read_body(self)
 
             if path == "/api/theme":
 
-                theme = set_current_theme(
+                theme = validate_theme(
                     payload.get(
                         "theme",
                         "",
                     )
                 )
+
+                session_set_theme(sid, theme)
 
                 send_json(
                     self,
@@ -332,18 +389,21 @@ class TrainHandler(BaseHTTPRequestHandler):
                     {
                         "theme": theme,
                     },
+                    session_id=sid,
                 )
 
                 return
 
             if path == "/api/language":
 
-                language = set_current_language(
+                language = validate_language(
                     payload.get(
                         "language",
                         "",
                     )
                 )
+
+                session_set_language(sid, language)
 
                 send_json(
                     self,
@@ -351,6 +411,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                     {
                         "language": language,
                     },
+                    session_id=sid,
                 )
 
                 return
@@ -365,6 +426,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                     self,
                     HTTPStatus.OK,
                     form,
+                    session_id=sid,
                 )
 
                 return
@@ -389,6 +451,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                     self,
                     HTTPStatus.OK,
                     result,
+                    session_id=sid,
                 )
 
                 return
@@ -399,6 +462,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                     self,
                     HTTPStatus.OK,
                     clear_training_output(),
+                    session_id=sid,
                 )
 
                 return
@@ -418,6 +482,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                     self,
                     HTTPStatus.OK,
                     result,
+                    session_id=sid,
                 )
 
                 return
@@ -443,6 +508,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                     self,
                     HTTPStatus.OK,
                     result,
+                    session_id=sid,
                 )
 
                 return
@@ -461,6 +527,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                 {
                     "error": str(exc),
                 },
+                session_id=sid,
             )
 
             return

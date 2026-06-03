@@ -32,14 +32,25 @@ def get_current_theme() -> str:
     theme = str(config.get("theme", DEFAULT_THEME)).strip().lower()
     return theme if theme in THEME_FILES else DEFAULT_THEME
 
-def set_current_theme(theme: str) -> str:
+def validate_theme(theme: str) -> str:
     normalized = str(theme).strip().lower()
     if normalized not in THEME_FILES:
         raise ValueError("Unknown theme")
+    return normalized
+
+def set_current_theme(theme: str) -> str:
+    normalized = validate_theme(theme)
     config = get_app_config()
     config["theme"] = normalized
     save_app_config(config)
     return normalized
+
+def resolve_theme(session_config: dict | None = None) -> str:
+    if session_config and "theme" in session_config:
+        theme = session_config["theme"]
+        if theme in THEME_FILES:
+            return theme
+    return get_current_theme()
 
 def get_available_themes() -> list[dict[str, str]]:
     return [{"key": key, "label": key.capitalize()} for key in THEME_FILES]

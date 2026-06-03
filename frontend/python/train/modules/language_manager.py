@@ -29,14 +29,25 @@ def get_current_language() -> str:
     language = str(config.get("language", DEFAULT_LANGUAGE)).strip().lower()
     return language if language in LANGUAGES else DEFAULT_LANGUAGE
 
-def set_current_language(language: str) -> str:
+def validate_language(language: str) -> str:
     normalized = str(language).strip().lower()
     if normalized not in LANGUAGES:
         raise ValueError("Unknown language")
+    return normalized
+
+def set_current_language(language: str) -> str:
+    normalized = validate_language(language)
     config = get_app_config()
     config["language"] = normalized
     save_app_config(config)
     return normalized
+
+def resolve_language(session_config: dict | None = None) -> str:
+    if session_config and "language" in session_config:
+        lang = session_config["language"]
+        if lang in LANGUAGES:
+            return lang
+    return get_current_language()
 
 def get_available_languages() -> list[dict[str, str]]:
     return [{"key": key, "label": label} for key, label in LANGUAGES.items()]
