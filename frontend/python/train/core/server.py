@@ -19,7 +19,7 @@ def get_port() -> int:
 def run_server() -> None:
     server = ThreadingHTTPServer(("0.0.0.0", get_port()), TrainHandler)
     try:
-        print(f"Serving on http://0.0.0.0:{server.server_address[1]}")
+        print(f"Serving on http://localhost:{server.server_address[1]}")
         server.serve_forever()
     except KeyboardInterrupt:
         pass
