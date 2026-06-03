@@ -218,4 +218,14 @@ __marimo__/
 .streamlit/secrets.toml
 
 .idea/
-db/
+db/models/**
+!db/models/**/
+!db/models/.gitkeep
+
+db/datasets/**
+!db/datasets/**/
+!db/datasets/.gitkeep
+
+db/runtime/**
+!db/runtime/**/
+!db/runtime/.gitkeep

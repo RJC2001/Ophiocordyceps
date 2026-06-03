@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Training</title>
+  <link rel="icon" type="image/png" href="/static/drawable/ophiocordyceps.png">
+  <link rel="apple-touch-icon" href="/static/drawable/ophiocordyceps.png">
+  <link rel="stylesheet" href="/static/css/current.css">
+  <script defer src="/static/js/app.js"></script>
+</head>
+<body>
+  <main class="page">
+    <section class="card hero">
+      <div class="hero-copy">
+        <p class="eyebrow" data-i18n="hero_eyebrow">Ophiocordyceps</p>
+        <h1 data-i18n="hero_title">Training workspace</h1>
+        <p class="lead" data-i18n="hero_lead">Training, logs and models are separated into dedicated sections.</p>
+      </div>
+
+      <div class="hero-tools">
+        <label class="field compact">
+          <span data-i18n="theme_label">Theme</span>
+          <select id="themeSelect"></select>
+        </label>
+
+        <label class="field compact">
+          <span data-i18n="language_label">Language</span>
+          <select id="languageSelect"></select>
+        </label>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <article class="card section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="form_eyebrow">Training form</p>
+            <h2 data-i18n="form_title">Training data</h2>
+          </div>
+          <span class="pill" data-i18n="form_pill">saved to config</span>
+        </div>
+
+        <form id="trainingForm" class="form-grid">
+          <label class="field">
+            <span data-i18n="dataset_label">Dataset</span>
+            <input type="text" name="dataset" autocomplete="off">
+          </label>
+
+          <label class="field">
+            <span data-i18n="model_name_label">Model name</span>
+            <input type="text" name="model_name" autocomplete="off">
+          </label>
+
+          <label class="field">
+            <span data-i18n="epochs_label">Epochs</span>
+            <input type="number" name="epochs" min="1" step="1">
+          </label>
+
+          <label class="field">
+            <span data-i18n="batch_size_label">Batch size</span>
+            <input type="number" name="batch_size" min="1" step="1">
+          </label>
+
+          <label class="field full">
+            <span data-i18n="learning_rate_label">Learning rate</span>
+            <input type="number" name="learning_rate" min="0" step="0.000001" inputmode="decimal">
+          </label>
+
+          <div class="actions full">
+            <button type="submit" class="primary" data-i18n="save_form">Save form</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="card section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="output_eyebrow">Output</p>
+            <h2 data-i18n="output_title">Live preview</h2>
+          </div>
+          <button type="button" id="clearOutput" class="secondary" data-i18n="clear">Clear</button>
+        </div>
+
+        <pre id="outputLog" class="output-log"></pre>
+      </article>
+    </section>
+
+    <section class="card section">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow" data-i18n="models_eyebrow">Models</p>
+          <h2 data-i18n="models_title">Saved models</h2>
+        </div>
+        <button type="button" id="refreshModels" class="secondary" data-i18n="refresh">Refresh</button>
+      </div>
+
+      <ul id="modelList" class="model-list"></ul>
+    </section>
+  </main>
+</body>
+</html>
