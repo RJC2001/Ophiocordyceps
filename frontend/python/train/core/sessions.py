@@ -4,9 +4,25 @@ import uuid
 import threading
 from typing import Any
 
+from core.config import CONFIG_DIR, load_json, save_json
+
 SESSIONS: dict[str, dict[str, Any]] = {}
 _lock = threading.Lock()
 COOKIE_NAME = "ophio_session"
+SESSIONS_PATH = CONFIG_DIR / "sessions.json"
+
+
+def _load() -> None:
+    data = load_json(SESSIONS_PATH, {})
+    if isinstance(data, dict):
+        SESSIONS.clear()
+        for sid, config in data.items():
+            if isinstance(config, dict):
+                SESSIONS[sid] = dict(config)
+
+
+def _save() -> None:
+    save_json(SESSIONS_PATH, SESSIONS)
 
 
 def create_id() -> str:
@@ -27,6 +43,7 @@ def get_or_create(session_id: str | None) -> tuple[str, dict[str, Any]]:
     sid = create_id()
     with _lock:
         SESSIONS[sid] = {}
+    _save()
     return sid, {}
 
 
@@ -35,6 +52,7 @@ def set_theme(session_id: str, theme: str) -> None:
         config = SESSIONS.get(session_id)
         if config is not None:
             config["theme"] = theme
+    _save()
 
 
 def set_language(session_id: str, language: str) -> None:
@@ -42,3 +60,7 @@ def set_language(session_id: str, language: str) -> None:
         config = SESSIONS.get(session_id)
         if config is not None:
             config["language"] = language
+    _save()
+
+
+_load()
