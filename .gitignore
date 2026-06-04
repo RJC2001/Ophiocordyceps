@@ -229,5 +229,3 @@ db/datasets/**
 db/runtime/**
 !db/runtime/**/
 !db/runtime/.gitkeep
-
-frontend/res/static/config/sessions.json

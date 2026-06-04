@@ -1,66 +1,45 @@
 from __future__ import annotations
 
-import uuid
-import threading
+import json
+import base64
 from typing import Any
 
-from core.config import CONFIG_DIR, load_json, save_json
-
-SESSIONS: dict[str, dict[str, Any]] = {}
-_lock = threading.Lock()
 COOKIE_NAME = "ophio_session"
-SESSIONS_PATH = CONFIG_DIR / "sessions.json"
 
+def _encode_cookie(data: dict[str, Any]) -> str:
+    raw = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
-def _load() -> None:
-    data = load_json(SESSIONS_PATH, {})
-    if isinstance(data, dict):
-        SESSIONS.clear()
-        for sid, config in data.items():
-            if isinstance(config, dict):
-                SESSIONS[sid] = dict(config)
-
-
-def _save() -> None:
-    save_json(SESSIONS_PATH, SESSIONS)
-
+def _decode_cookie(value: str) -> dict[str, Any] | None:
+    try:
+        padding = "=" * (-len(value) % 4)
+        raw = base64.urlsafe_b64decode((value + padding).encode("ascii"))
+        return json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
 
 def create_id() -> str:
-    return str(uuid.uuid4())
-
+    return _encode_cookie({})
 
 def get(session_id: str) -> dict[str, Any] | None:
-    with _lock:
-        return SESSIONS.get(session_id)
-
+    if not session_id:
+        return None
+    return _decode_cookie(session_id)
 
 def get_or_create(session_id: str | None) -> tuple[str, dict[str, Any]]:
     if session_id:
-        with _lock:
-            config = SESSIONS.get(session_id)
-            if config is not None:
-                return session_id, config
+        config = _decode_cookie(session_id)
+        if isinstance(config, dict):
+            return session_id, config
     sid = create_id()
-    with _lock:
-        SESSIONS[sid] = {}
-    _save()
     return sid, {}
 
+def set_theme(session_id: str, theme: str) -> str:
+    config = _decode_cookie(session_id) or {}
+    config["theme"] = theme
+    return _encode_cookie(config)
 
-def set_theme(session_id: str, theme: str) -> None:
-    with _lock:
-        config = SESSIONS.get(session_id)
-        if config is not None:
-            config["theme"] = theme
-    _save()
-
-
-def set_language(session_id: str, language: str) -> None:
-    with _lock:
-        config = SESSIONS.get(session_id)
-        if config is not None:
-            config["language"] = language
-    _save()
-
-
-_load()
+def set_language(session_id: str, language: str) -> str:
+    config = _decode_cookie(session_id) or {}
+    config["language"] = language
+    return _encode_cookie(config)

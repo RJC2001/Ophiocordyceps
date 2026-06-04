@@ -10,12 +10,12 @@ DEFAULT_THEME = "light"
 THEME_FILES = {
     "light": THEME_DIR / "light.css",
     "dark": THEME_DIR / "dark.css",
+    "monochrome": THEME_DIR / "monochrome.css",
     "forest": THEME_DIR / "forest.css",
     "ocean": THEME_DIR / "ocean.css",
     "sunset": THEME_DIR / "sunset.css",
-    "cyberpunk": THEME_DIR / "cyberpunk.css",
-    "monochrome": THEME_DIR / "monochrome.css",
     "steampunk": THEME_DIR / "steampunk.css",
+    "cyberpunk": THEME_DIR / "cyberpunk.css",
 }
 
 def get_app_config() -> dict[str, Any]:
