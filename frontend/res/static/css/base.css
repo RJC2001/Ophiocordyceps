@@ -321,6 +321,8 @@ h1 {
 
 .table-wrap {
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 400px;
   margin-bottom: 16px;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -547,6 +549,27 @@ a.button-secondary:hover {
   display: flex;
   gap: 16px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.checkbox-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  background: var(--surface-2, #f0f0f0);
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border, #ccc);
+  transition: background 0.15s;
+  user-select: none;
+}
+.checkbox-inline:hover {
+  background: var(--hover, rgba(0,0,0,0.05));
+}
+.checkbox-inline input[type="checkbox"] {
+  accent-color: var(--accent, #4361ee);
 }
 
 .split-config-inner {

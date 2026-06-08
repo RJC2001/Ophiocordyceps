@@ -405,9 +405,8 @@ class TrainHandler(BaseHTTPRequestHandler):
                 test_size = float(payload.get("test_size", 0.2))
                 val_size = float(payload.get("val_size", 0.0))
                 task_type = str(payload.get("task_type", "auto"))
-                split_method = str(payload.get("split_method", "random"))
+                shuffle = str(payload.get("shuffle", "true")).lower() == "true"
                 random_state = int(payload.get("random_state", 42))
-                shuffle = split_method != "sequential"
                 val_strategy = str(payload.get("val_strategy", "simple"))
                 k_folds = int(payload.get("k_folds", 5))
 
@@ -420,7 +419,7 @@ class TrainHandler(BaseHTTPRequestHandler):
 
                 result = start_training(
                     sid, csv_path, target_col, feature_cols, algorithm, params,
-                    test_size, task_type, split_method, random_state, shuffle, val_size,
+                    test_size, task_type, random_state, shuffle, val_size,
                     val_strategy, k_folds
                 )
                 send_json(self, HTTPStatus.OK, result, session_id=sid)

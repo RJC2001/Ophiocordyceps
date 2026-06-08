@@ -111,25 +111,21 @@
                 <input type="radio" name="val_strategy" value="kfold">
                 <span data-i18n="val_strategy_kfold">K-fold cross-validation</span>
               </label>
+              <label class="checkbox-inline" style="margin-left:auto">
+                <input type="checkbox" name="shuffle" checked>
+                <span data-i18n="shuffle_label">Shuffle data</span>
+              </label>
+            </div>
+            <div id="randomSeedField" style="display:flex;justify-content:flex-end;margin-top:8px">
+              <label class="checkbox-inline">
+                <span style="font-size:12px" data-i18n="random_seed_label">Seed</span>
+                <input type="number" name="random_state" min="0" max="999999" step="1" value="42" style="width:70px">
+              </label>
             </div>
           </div>
 
           <div id="splitConfig" class="full">
-            <div class="split-config-inner">
-              <label class="preproc-field">
-                <span data-i18n="split_label">Split method</span>
-                <select name="split_method">
-                  <option value="random" data-i18n="split_random">Random shuffle split</option>
-                  <option value="sequential" data-i18n="split_sequential">Sequential (no shuffle)</option>
-                </select>
-              </label>
-
-              <label class="preproc-field" id="randomSeedField">
-                <span data-i18n="random_seed_label">Random seed</span>
-                <input type="number" name="random_state" min="0" max="999999" step="1" value="42">
-              </label>
-
-              <div class="preproc-field full split-bar-section" id="splitBarSection">
+            <div class="preproc-field full split-bar-section" id="splitBarSection">
                 <div class="dual-slider" id="dualSlider">
                   <div class="dual-slider-fills" id="sliderFills">
                     <div class="dual-fill train" id="fillTrain">70%</div>
@@ -146,7 +142,6 @@
                 </div>
               </div>
             </div>
-          </div>
 
           <div id="kfoldConfig" class="full" style="display:none">
             <label class="preproc-field">

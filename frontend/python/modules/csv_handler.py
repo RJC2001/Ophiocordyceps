@@ -46,8 +46,6 @@ def _parse_csv(path: Path) -> dict[str, Any]:
         if i == 0:
             columns = list(row.keys())
         rows.append(row)
-        if i >= 49:
-            break
 
     preview_rows: list[list[str]] = []
     for row in rows:

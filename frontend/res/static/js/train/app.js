@@ -299,13 +299,13 @@ algorithmSelect.addEventListener("change", () => {
   updateTooltip();
 });
 
-const splitMethodSelect = document.querySelector('select[name="split_method"]');
+const shuffleCheckbox = document.querySelector('input[name="shuffle"]');
 function toggleSeedField() {
   const seedField = document.getElementById("randomSeedField");
   if (!seedField) return;
-  seedField.style.display = splitMethodSelect.value === "sequential" ? "none" : "";
+  seedField.style.display = shuffleCheckbox.checked ? "" : "none";
 }
-splitMethodSelect.addEventListener("change", toggleSeedField);
+shuffleCheckbox.addEventListener("change", toggleSeedField);
 
 const dualSlider = document.getElementById("dualSlider");
 const thumbTrain = document.getElementById("thumbTrain");
@@ -380,13 +380,13 @@ function updateSplitBar() {
 
 function toggleValStrategy() {
   const val = document.querySelector('input[name="val_strategy"]:checked');
-  const splitConfig = document.getElementById("splitConfig");
+  const splitBar = document.getElementById("splitBarSection");
   const kfoldConfig = document.getElementById("kfoldConfig");
   if (val && val.value === "kfold") {
-    splitConfig.style.display = "none";
+    splitBar.style.display = "none";
     kfoldConfig.style.display = "";
   } else {
-    splitConfig.style.display = "";
+    splitBar.style.display = "";
     kfoldConfig.style.display = "none";
   }
 }
@@ -435,7 +435,7 @@ trainForm.addEventListener("submit", async (e) => {
   const algorithm = algorithmSelect.value;
   const valStrategy = document.querySelector('input[name="val_strategy"]:checked').value;
   const taskType = fd.task_type.value;
-  const splitMethod = fd.split_method.value;
+  const shuffle = shuffleCheckbox.checked;
   const randomState = parseInt(fd.random_state.value) || 42;
 
   trainBtn.disabled = true;
@@ -451,7 +451,7 @@ trainForm.addEventListener("submit", async (e) => {
         algorithm: algorithm,
         params: params,
         task_type: taskType,
-        split_method: splitMethod,
+        shuffle: shuffle,
         random_state: randomState,
         val_strategy: valStrategy,
         test_size: valStrategy === "simple" ? (100 - getThumbPos(thumbTest)) / 100 : 0.0,

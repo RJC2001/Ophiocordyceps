@@ -251,7 +251,7 @@ function revalidateFeatures() {
     }
     predictBtn.disabled = missing.length > 0;
   } else if (csvCols.length > 0 && modelCols.length === 0) {
-    featureStatus.innerHTML = `<span style="color:var(--muted,#888)">${csvCols.length} columns loaded</span>`;
+    featureStatus.innerHTML = `<span style="color:var(--muted,#888)">${t("test_columns_loaded").replace("{n}", csvCols.length)}</span>`;
     predictBtn.disabled = false;
   } else {
     featureStatus.innerHTML = "";

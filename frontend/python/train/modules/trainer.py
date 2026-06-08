@@ -208,7 +208,6 @@ def _train_worker(
     params: dict[str, Any],
     test_size: float,
     task_type: str = "auto",
-    split_method: str = "random",
     random_state: int = 42,
     shuffle: bool = True,
     val_size: float = 0.0,
@@ -260,7 +259,7 @@ def _train_worker(
 
         if val_strategy == "kfold":
             log_msg(f"K-fold cross-validation ({k_folds} folds)...")
-            kf = KFold(n_splits=k_folds, shuffle=(split_method != "sequential"), random_state=random_state)
+            kf = KFold(n_splits=k_folds, shuffle=shuffle, random_state=random_state if shuffle else None)
             fold_metrics: dict[str, list[float]] = {}
             all_y_test: list[float] = []
             all_y_pred: list[float] = []
@@ -313,7 +312,7 @@ def _train_worker(
             log_msg("Final model trained on all data")
 
         else:
-            log_msg(f"Split method: {split_method}, test size: {test_size}, val size: {val_size}, shuffle: {shuffle}, seed: {random_state}")
+            log_msg(f"Shuffle: {shuffle}, test size: {test_size}, val size: {val_size}, seed: {random_state}")
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=test_size, random_state=random_state, shuffle=shuffle
             )
@@ -410,7 +409,6 @@ def start_training(
     params: dict[str, Any],
     test_size: float = 0.2,
     task_type: str = "auto",
-    split_method: str = "random",
     random_state: int = 42,
     shuffle: bool = True,
     val_size: float = 0.0,
@@ -428,7 +426,6 @@ def start_training(
             params,
             test_size,
             task_type,
-            split_method,
             random_state,
             shuffle,
             val_size,
