@@ -223,3 +223,4 @@ db/models/**
 !db/models/.gitkeep
 
 db/temp/
+db/temp_models/
