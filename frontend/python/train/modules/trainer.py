@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.model_selection import KFold, cross_val_score, train_test_split
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.svm import SVC, SVR
@@ -213,6 +215,7 @@ def _train_worker(
     val_strategy: str = "simple",
     k_folds: int = 5,
 ) -> None:
+    warnings.filterwarnings("ignore", category=ConvergenceWarning)
     state = training_states.setdefault(
         session_id,
         {
@@ -252,17 +255,24 @@ def _train_worker(
 
         model = _build_model(algorithm, task, params)
         metrics: dict[str, Any] = {"task": task}
+        y_test = None
+        y_pred = None
 
         if val_strategy == "kfold":
             log_msg(f"K-fold cross-validation ({k_folds} folds)...")
             kf = KFold(n_splits=k_folds, shuffle=(split_method != "sequential"), random_state=random_state)
             fold_metrics: dict[str, list[float]] = {}
+            all_y_test: list[float] = []
+            all_y_pred: list[float] = []
             for fold_idx, (train_idx, val_idx) in enumerate(kf.split(X)):
                 X_fold_train, X_fold_val = X.iloc[train_idx], X.iloc[val_idx]
                 y_fold_train, y_fold_val = y.iloc[train_idx], y.iloc[val_idx]
                 model_fold = _build_model(algorithm, task, params)
                 model_fold.fit(X_fold_train, y_fold_train)
                 y_fold_pred = model_fold.predict(X_fold_val)
+
+                all_y_test.extend(y_fold_val.tolist())
+                all_y_pred.extend(y_fold_pred.tolist())
 
                 if task == "classification":
                     fold_metrics.setdefault("accuracy", []).append(accuracy_score(y_fold_val, y_fold_pred))
@@ -290,6 +300,9 @@ def _train_worker(
                     fold_metrics.setdefault("r2", []).append(r2_score(y_fold_val, y_fold_pred))
 
                 log_msg(f"  Fold {fold_idx + 1}/{k_folds} complete")
+
+            y_test = all_y_test
+            y_pred = all_y_pred
 
             for key, values in fold_metrics.items():
                 metrics[key] = round(float(np.mean(values)), 4)
@@ -368,6 +381,11 @@ def _train_worker(
         state["_feature_cols"] = feature_cols
         state["_target_col"] = target_col
 
+        y_test_list = y_test.tolist() if hasattr(y_test, "tolist") else list(y_test) if y_test is not None else []
+        y_pred_list = y_pred.tolist() if hasattr(y_pred, "tolist") else list(y_pred) if y_pred is not None else []
+        state["_y_test"] = y_test_list
+        state["_y_pred"] = y_pred_list
+
         tmp_dir = MODELS_DIR.parent / "temp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         model_file = tmp_dir / f"{Path(csv_path).stem}.model"
@@ -427,12 +445,17 @@ def get_training_status(session_id: str) -> dict[str, Any]:
     state = training_states.get(session_id)
     if state is None:
         return {"status": "idle", "log": [], "metrics": None, "error": None}
-    return {
+    result: dict[str, Any] = {
         "status": state["status"],
         "log": list(state["log"]),
         "metrics": state["metrics"],
         "error": state["error"],
     }
+    y_test = state.get("_y_test")
+    y_pred = state.get("_y_pred")
+    if y_test is not None and y_pred is not None:
+        result["predictions"] = {"y_test": y_test, "y_pred": y_pred}
+    return result
 
 
 def save_to_server(session_id: str, name: str) -> str:

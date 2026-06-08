@@ -752,3 +752,24 @@ button:disabled:hover {
     width: 100%;
   }
 }
+
+.pred-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.pred-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface, #fff);
+  border-bottom: 2px solid var(--border, #ccc);
+  padding: 6px 10px;
+  text-align: left;
+}
+.pred-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border, #eee);
+}
+.pred-table tbody tr:hover {
+  background: var(--hover, rgba(0,0,0,0.03));
+}

@@ -487,6 +487,10 @@ function startPolling() {
         trainBtn.disabled = false;
         trainBtn.textContent = t("train_btn");
         showResults(status.metrics);
+        if (status.predictions) {
+          const task = status.metrics ? status.metrics.task : "regression";
+          renderPredictionChart(status.predictions, task);
+        }
         enableResults();
       } else if (status.status === "error") {
         clearInterval(pollInterval);
@@ -700,6 +704,103 @@ languageSelect.addEventListener("change", async () => {
   await api("/api/language", { method: "POST", body: JSON.stringify({ language: languageSelect.value }) });
   window.location.reload();
 });
+
+// ── Prediction Chart ──
+
+function renderPredictionChart(predictions, task) {
+  const svg = document.getElementById("chartSvg");
+  const section = document.getElementById("chartSection");
+  const wrap = document.getElementById("chartWrap");
+  section.style.display = "";
+
+  let yTest = predictions.y_test || [];
+  let yPred = predictions.y_pred || [];
+  if (yTest.length === 0 || yPred.length === 0) return;
+
+  // cap at 500 points for performance
+  const maxPts = 500;
+  if (yTest.length > maxPts) {
+    const step = Math.ceil(yTest.length / maxPts);
+    yTest = yTest.filter((_, i) => i % step === 0);
+    yPred = yPred.filter((_, i) => i % step === 0);
+  }
+
+  const w = wrap.clientWidth || 600;
+  const h = 300;
+  const pad = { top: 20, right: 20, bottom: 40, left: 50 };
+  const pw = w - pad.left - pad.right;
+  const ph = h - pad.top - pad.bottom;
+
+  const all = yTest.concat(yPred);
+  const xMin = Math.min(...all);
+  const xMax = Math.max(...all);
+  const margin = (xMax - xMin) * 0.1 || 1;
+  const xMin2 = xMin - margin;
+  const xMax2 = xMax + margin;
+
+  const sx = (v) => pad.left + ((v - xMin2) / (xMax2 - xMin2)) * pw;
+  const sy = (v) => pad.top + ph - ((v - xMin2) / (xMax2 - xMin2)) * ph;
+
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.setAttribute("width", w);
+  svg.setAttribute("height", h);
+  svg.innerHTML = "";
+
+  // Diagonal reference line
+  const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  line.setAttribute("x1", sx(xMin2));
+  line.setAttribute("y1", sy(xMin2));
+  line.setAttribute("x2", sx(xMax2));
+  line.setAttribute("y2", sy(xMax2));
+  line.setAttribute("stroke", "#ccc");
+  line.setAttribute("stroke-dasharray", "4");
+  svg.appendChild(line);
+
+  // Scatter points
+  for (let i = 0; i < yTest.length; i++) {
+    const cx = sx(yPred[i]);
+    const cy = sy(yTest[i]);
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", cx);
+    circle.setAttribute("cy", cy);
+    circle.setAttribute("r", 3);
+    circle.setAttribute("fill", "var(--accent, #4361ee)");
+    circle.setAttribute("opacity", "0.6");
+    svg.appendChild(circle);
+  }
+
+  // Axis labels
+  const lblX = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  lblX.setAttribute("x", pad.left + pw / 2);
+  lblX.setAttribute("y", h - 5);
+  lblX.setAttribute("text-anchor", "middle");
+  lblX.setAttribute("font-size", "12");
+  lblX.setAttribute("fill", "var(--muted, #888)");
+  lblX.textContent = t("chart_predicted");
+  svg.appendChild(lblX);
+
+  const lblY = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  lblY.setAttribute("x", 12);
+  lblY.setAttribute("y", pad.top + ph / 2);
+  lblY.setAttribute("text-anchor", "middle");
+  lblY.setAttribute("font-size", "12");
+  lblY.setAttribute("fill", "var(--muted, #888)");
+  lblY.setAttribute("transform", `rotate(-90, 12, ${pad.top + ph / 2})`);
+  lblY.textContent = t("chart_actual");
+  svg.appendChild(lblY);
+
+  // Predictions table (full data, up to 1000 rows)
+  const tbody = document.getElementById("predTbody");
+  tbody.innerHTML = "";
+  const fullYTest = predictions.y_test || [];
+  const fullYPred = predictions.y_pred || [];
+  const maxRows = Math.min(fullYTest.length, 1000);
+  for (let i = 0; i < maxRows; i++) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${i + 1}</td><td>${fullYTest[i]}</td><td>${fullYPred[i]}</td>`;
+    tbody.appendChild(tr);
+  }
+}
 
 // ── Init ──
 

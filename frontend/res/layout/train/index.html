@@ -187,6 +187,25 @@
       <pre id="outputLog" class="output-log"></pre>
     </section>
 
+    <!-- Chart -->
+    <section class="card section" id="chartSection" style="display:none">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow" data-i18n="chart_eyebrow">Visualization</p>
+          <h2 data-i18n="chart_title">Predictions</h2>
+        </div>
+      </div>
+      <div class="chart-wrap" id="chartWrap">
+        <svg id="chartSvg" width="100%" height="300" style="display:block;margin:0 auto"></svg>
+      </div>
+      <div id="predTableWrap" style="margin-top:1rem;max-height:300px;overflow-y:auto">
+        <table id="predTable" class="pred-table">
+          <thead><tr><th>#</th><th data-i18n="chart_actual">Actual</th><th data-i18n="chart_predicted">Predicted</th></tr></thead>
+          <tbody id="predTbody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- Results -->
     <section class="card section" id="resultsSection">
       <div class="section-head">

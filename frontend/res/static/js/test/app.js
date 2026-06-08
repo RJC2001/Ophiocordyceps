@@ -25,6 +25,7 @@ let translations = {};
 let currentModelState = null;
 let uploadToken = null;
 let csvToken = null;
+let csvColumnNames = [];
 
 async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
@@ -143,10 +144,7 @@ selectModelBtn.addEventListener("click", async () => {
     loadedModelPill.textContent = (name.endsWith(".model") ? name.slice(0, -6) : name);
     csvSection.style.display = "";
     resultsSection.style.display = "none";
-    predictBtn.disabled = true;
-    featureStatus.innerHTML = "";
-    csvStatus.textContent = "";
-    csvToken = null;
+    revalidateFeatures();
   } catch (err) {
     alert("Error: " + err.message);
   }
@@ -197,10 +195,7 @@ confirmUploadBtn.addEventListener("click", () => {
   loadedModelPill.textContent = t("test_uploaded_model");
   csvSection.style.display = "";
   resultsSection.style.display = "none";
-  predictBtn.disabled = true;
-  featureStatus.innerHTML = "";
-  csvStatus.textContent = "";
-  csvToken = null;
+  revalidateFeatures();
 });
 
 // ── CSV Upload ──
@@ -231,22 +226,35 @@ async function handleCsvFile(file) {
       body: JSON.stringify({ filename: file.name, data: base64 })
     });
     csvToken = file.name;
+    csvColumnNames = result.columns || [];
     csvStatus.textContent = file.name + " (" + result.total_lines + " rows, " + result.columns.length + " cols)";
 
-    const modelCols = currentModelState ? currentModelState.feature_cols || [] : [];
-    const csvCols = result.columns || [];
-    if (modelCols.length > 0) {
-      const found = modelCols.filter(c => csvCols.includes(c));
-      const missing = modelCols.filter(c => !csvCols.includes(c));
-      if (missing.length > 0) {
-        featureStatus.innerHTML = `<span style="color:var(--muted,#888)">${t("test_skip_cols")}: ${missing.join(", ")}</span>`;
-      } else {
-        featureStatus.innerHTML = `<span style="color:var(--positive,#4caf50)">\u2713 ${found.length} ${t("test_features_found")}</span>`;
-      }
-    }
-    predictBtn.disabled = false;
+    revalidateFeatures();
   } catch (err) {
     alert(err.message);
+  }
+}
+
+// ── Re-validate features after model or CSV change ──
+
+function revalidateFeatures() {
+  const modelCols = currentModelState ? currentModelState.feature_cols || [] : [];
+  const csvCols = csvColumnNames || [];
+  if (csvCols.length > 0 && modelCols.length > 0) {
+    const found = modelCols.filter(c => csvCols.includes(c));
+    const missing = modelCols.filter(c => !csvCols.includes(c));
+    if (missing.length > 0) {
+      featureStatus.innerHTML = `<span style="color:var(--muted,#888)">${t("test_skip_cols")}: ${missing.join(", ")}</span>`;
+    } else {
+      featureStatus.innerHTML = `<span style="color:var(--positive,#4caf50)">\u2713 ${found.length} ${t("test_features_found")}</span>`;
+    }
+    predictBtn.disabled = missing.length > 0;
+  } else if (csvCols.length > 0 && modelCols.length === 0) {
+    featureStatus.innerHTML = `<span style="color:var(--muted,#888)">${csvCols.length} columns loaded</span>`;
+    predictBtn.disabled = false;
+  } else {
+    featureStatus.innerHTML = "";
+    predictBtn.disabled = !csvToken;
   }
 }
 
@@ -341,17 +349,19 @@ function showResults(result) {
   downloadResultsBtn.style.display = "inline-flex";
   const blob = new Blob([csv], { type: "text/csv" });
   downloadResultsBtn.href = URL.createObjectURL(blob);
-  downloadResultsBtn.download = "predictions.csv";
+  const csvBase = csvToken ? csvToken.replace(/\.csv$/i, "") : "predictions";
+  downloadResultsBtn.download = csvBase + "_predictions.csv";
 }
 
 // ── Clear CSV & results (keeps model) ──
 
 clearAllBtn.addEventListener("click", () => {
   csvToken = null;
-  csvSection.style.display = "none";
+  csvColumnNames = [];
   resultsSection.style.display = "none";
   featureStatus.innerHTML = "";
   csvStatus.textContent = "";
+  predictBtn.disabled = true;
 });
 
 // ── Init ──
