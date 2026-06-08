@@ -15,7 +15,7 @@
       <div class="hero-copy">
         <p class="eyebrow" data-i18n="hero_eyebrow">Ophiocordyceps</p>
         <h1 data-i18n="hero_title">Training workspace</h1>
-        <p class="lead" data-i18n="hero_lead">Training, logs and models are separated into dedicated sections.</p>
+        <p class="lead" data-i18n="hero_lead">Upload your CSV, configure the model, train, and download.</p>
       </div>
 
       <div class="hero-tools">
@@ -23,7 +23,6 @@
           <span data-i18n="theme_label">Theme</span>
           <select id="themeSelect"></select>
         </label>
-
         <label class="field compact">
           <span data-i18n="language_label">Language</span>
           <select id="languageSelect"></select>
@@ -31,70 +30,189 @@
       </div>
     </section>
 
-    <section class="grid-2">
-      <article class="card section">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow" data-i18n="form_eyebrow">Training form</p>
-            <h2 data-i18n="form_title">Training data</h2>
-          </div>
-          <span class="pill" data-i18n="form_pill">saved to config</span>
-        </div>
-
-        <form id="trainingForm" class="form-grid">
-          <label class="field">
-            <span data-i18n="dataset_label">Dataset</span>
-            <input type="text" name="dataset" autocomplete="off">
-          </label>
-
-          <label class="field">
-            <span data-i18n="model_name_label">Model name</span>
-            <input type="text" name="model_name" autocomplete="off">
-          </label>
-
-          <label class="field">
-            <span data-i18n="epochs_label">Epochs</span>
-            <input type="number" name="epochs" min="1" step="1">
-          </label>
-
-          <label class="field">
-            <span data-i18n="batch_size_label">Batch size</span>
-            <input type="number" name="batch_size" min="1" step="1">
-          </label>
-
-          <label class="field full">
-            <span data-i18n="learning_rate_label">Learning rate</span>
-            <input type="number" name="learning_rate" min="0" step="0.000001" inputmode="decimal">
-          </label>
-
-          <div class="actions full">
-            <button type="submit" class="primary" data-i18n="save_form">Save form</button>
-          </div>
-        </form>
-      </article>
-
-      <article class="card section">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow" data-i18n="output_eyebrow">Output</p>
-            <h2 data-i18n="output_title">Live preview</h2>
-          </div>
-          <button type="button" id="clearOutput" class="secondary" data-i18n="clear">Clear</button>
-        </div>
-
-        <pre id="outputLog" class="output-log"></pre>
-      </article>
-    </section>
-
-    <section class="card section">
+    <!-- CSV Upload -->
+    <section class="card section" id="uploadSection">
       <div class="section-head">
         <div>
-          <p class="eyebrow" data-i18n="models_eyebrow">Models</p>
-          <h2 data-i18n="models_title">Saved models</h2>
+          <p class="eyebrow" data-i18n="upload_eyebrow">Step 1</p>
+          <h2 data-i18n="upload_title">Upload CSV</h2>
         </div>
-        <button type="button" id="refreshModels" class="secondary" data-i18n="refresh">Refresh</button>
+        <span class="pill" id="uploadStatus" data-i18n="upload_pending">no file</span>
       </div>
 
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="fileInput" accept=".csv" hidden>
+        <p data-i18n="upload_hint">Click or drag a CSV file here</p>
+      </div>
+
+      <div id="datasetInfo" class="dataset-info" hidden>
+        <div class="dataset-meta">
+          <strong id="datasetFilename"></strong>
+          <span id="datasetRows"></span>
+        </div>
+        <div class="table-wrap">
+          <table id="previewTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="column-selector">
+          <div class="col-select-group">
+            <label class="col-label" data-i18n="features_label">Features (X):</label>
+            <div id="featuresCheckboxes" class="checkbox-group"></div>
+          </div>
+          <div class="col-select-group">
+            <label class="col-label" data-i18n="target_label">Target (y):</label>
+            <div id="targetRadios" class="radio-group"></div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="clearDataset" class="secondary" data-i18n="clear">Clear</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Preprocessing & Model Config -->
+    <section class="card section" id="trainSection">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow" data-i18n="train_eyebrow">Step 2</p>
+          <h2 data-i18n="train_title">Preprocessing & Model</h2>
+        </div>
+      </div>
+
+      <form id="trainForm">
+        <div class="preproc-grid">
+          <p class="preproc-title" data-i18n="preproc_title">Preprocessing</p>
+
+          <label class="preproc-field">
+            <span data-i18n="task_type_label">Task type</span>
+            <select name="task_type">
+              <option value="auto" data-i18n="task_auto">Auto-detect</option>
+              <option value="classification" data-i18n="task_classify">Classification</option>
+              <option value="regression" data-i18n="task_regress">Regression</option>
+            </select>
+          </label>
+
+          <div class="preproc-field full">
+            <span data-i18n="val_strategy_label">Validation strategy</span>
+            <div class="radio-group horizontal" id="valStrategyGroup">
+              <label class="radio-label">
+                <input type="radio" name="val_strategy" value="simple" checked>
+                <span data-i18n="val_strategy_simple">Simple split</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="val_strategy" value="kfold">
+                <span data-i18n="val_strategy_kfold">K-fold cross-validation</span>
+              </label>
+            </div>
+          </div>
+
+          <div id="splitConfig" class="full">
+            <div class="split-config-inner">
+              <label class="preproc-field">
+                <span data-i18n="split_label">Split method</span>
+                <select name="split_method">
+                  <option value="random" data-i18n="split_random">Random shuffle split</option>
+                  <option value="sequential" data-i18n="split_sequential">Sequential (no shuffle)</option>
+                </select>
+              </label>
+
+              <label class="preproc-field" id="randomSeedField">
+                <span data-i18n="random_seed_label">Random seed</span>
+                <input type="number" name="random_state" min="0" max="999999" step="1" value="42">
+              </label>
+
+              <div class="preproc-field full split-bar-section" id="splitBarSection">
+                <div class="dual-slider" id="dualSlider">
+                  <div class="dual-slider-fills" id="sliderFills">
+                    <div class="dual-fill train" id="fillTrain">70%</div>
+                    <div class="dual-fill val" id="fillVal">15%</div>
+                    <div class="dual-fill test" id="fillTest">15%</div>
+                  </div>
+                  <div class="dual-thumb" id="thumbTrain" style="left:70%"><div class="dual-knob"></div></div>
+                  <div class="dual-thumb" id="thumbTest" style="left:85%"><div class="dual-knob"></div></div>
+                </div>
+                <div class="split-bar-labels">
+                  <span data-i18n="split_bar_train">Train</span>
+                  <span data-i18n="split_bar_val">Validation</span>
+                  <span data-i18n="split_bar_test">Test</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="kfoldConfig" class="full" style="display:none">
+            <label class="preproc-field">
+              <span data-i18n="k_folds_label">Number of folds</span>
+              <input type="number" name="k_folds" min="2" max="20" step="1" value="5">
+            </label>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <label class="field full">
+            <span data-i18n="algorithm_label">Algorithm</span>
+            <div class="tooltip-wrap">
+              <select id="algorithmSelect" name="algorithm"></select>
+              <span class="tooltip-icon" id="algoTooltipIcon">?</span>
+              <span class="tooltip-text" id="algoTooltipText"></span>
+            </div>
+          </label>
+
+          <div id="hyperParams" class="params-group full"></div>
+
+          <div class="actions full">
+            <button type="submit" id="trainBtn" class="primary" data-i18n="train_btn">Train</button>
+            <button type="button" id="clearOutputBtn" class="secondary" data-i18n="clear_output">Clear output</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- Output -->
+    <section class="card section" id="outputSection">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow" data-i18n="output_eyebrow">Output</p>
+          <h2 data-i18n="output_title">Training log</h2>
+        </div>
+      </div>
+      <pre id="outputLog" class="output-log"></pre>
+    </section>
+
+    <!-- Results -->
+    <section class="card section" id="resultsSection">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow" data-i18n="results_eyebrow">Results</p>
+          <h2 data-i18n="results_title">Metrics</h2>
+        </div>
+      </div>
+
+      <div id="metricsDisplay" class="metrics-grid"></div>
+
+      <div class="actions">
+        <a id="downloadBtn" class="button primary btn" aria-disabled="true" data-i18n="download_model">Download model</a>
+        <button type="button" id="saveConfirmBtn" class="primary btn" disabled data-i18n="save_to_server">Save to server</button>
+      </div>
+      <p id="saveStatus" class="save-status"></p>
+    </section>
+
+    <!-- Server Models -->
+    <section class="card section" id="modelsSection">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow" data-i18n="models_eyebrow">Server</p>
+          <h2 data-i18n="models_title">Saved models</h2>
+        </div>
+      </div>
+
+      <div class="field">
+        <input type="text" id="modelFilter" data-i18n="model_filter_placeholder" placeholder="Filter models…">
+      </div>
       <ul id="modelList" class="model-list"></ul>
     </section>
   </main>

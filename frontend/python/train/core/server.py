@@ -5,7 +5,18 @@ from http.server import ThreadingHTTPServer
 from core.config import APP_CONFIG_PATH, load_json
 from core.routes import TrainHandler
 
+DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
+
+
+def get_host() -> str:
+    config = load_json(APP_CONFIG_PATH, {})
+    if isinstance(config, dict):
+        host = config.get("host", DEFAULT_HOST)
+        if isinstance(host, str):
+            return host
+    return DEFAULT_HOST
+
 
 def get_port() -> int:
     config = load_json(APP_CONFIG_PATH, {})
@@ -16,10 +27,13 @@ def get_port() -> int:
             return DEFAULT_PORT
     return DEFAULT_PORT
 
+
 def run_server() -> None:
-    server = ThreadingHTTPServer(("0.0.0.0", get_port()), TrainHandler)
+    host = get_host()
+    port = get_port()
+    server = ThreadingHTTPServer((host, port), TrainHandler)
     try:
-        print(f"Serving on http://localhost:{server.server_address[1]}")
+        print(f"Serving on http://localhost:{port}")
         server.serve_forever()
     except KeyboardInterrupt:
         pass
