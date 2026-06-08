@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ophiocordyceps</title>
+  <link rel="icon" type="image/png" href="/static/drawable/ophiocordyceps.png">
+  <link rel="apple-touch-icon" href="/static/drawable/ophiocordyceps.png">
+  <link rel="stylesheet" href="/static/css/current.css">
+  <script defer src="/static/js/menu.js"></script>
+  <style>
+    .menu-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .menu-card {
+      display: grid;
+      gap: 12px;
+      padding: 32px;
+      border-radius: 24px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      text-decoration: none;
+      color: var(--text);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .menu-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 24px 50px rgba(15, 23, 42, 0.12);
+    }
+    .menu-card h2 {
+      margin: 0;
+      font-size: 24px;
+    }
+    .menu-card p {
+      color: var(--muted);
+      margin: 0;
+      line-height: 1.5;
+    }
+    .menu-card .icon {
+      font-size: 36px;
+    }
+    @media (max-width: 700px) {
+      .menu-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="card hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Ophiocordyceps</p>
+        <h1 style="margin-bottom:4px" data-i18n="menu_title">Machine Learning</h1>
+        <p class="lead" data-i18n="menu_lead">Choose an application to get started.</p>
+      </div>
+      <div class="hero-tools">
+        <label class="field compact">
+          <span data-i18n="theme_label">Theme</span>
+          <select id="themeSelect"></select>
+        </label>
+        <label class="field compact">
+          <span data-i18n="language_label">Language</span>
+          <select id="languageSelect"></select>
+        </label>
+      </div>
+    </section>
+
+    <div class="menu-grid">
+      <a href="/train" class="menu-card">
+        <div class="icon">&#x1F3CB;</div>
+        <h2 data-i18n="menu_train_title">Training</h2>
+        <p data-i18n="menu_train_desc">Upload CSV, configure preprocessing, train models with various algorithms, and save or download them.</p>
+      </a>
+      <a href="/test" class="menu-card">
+        <div class="icon">&#x1F52C;</div>
+        <h2 data-i18n="menu_test_title">Testing</h2>
+        <p data-i18n="menu_test_desc">Select or upload a trained model, enter feature values, and get predictions with optional probabilities.</p>
+      </a>
+    </div>
+  </main>
+</body>
+</html>

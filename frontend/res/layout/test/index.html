@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Testing</title>
+  <link rel="icon" type="image/png" href="/static/drawable/ophiocordyceps.png">
+  <link rel="apple-touch-icon" href="/static/drawable/ophiocordyceps.png">
+  <link rel="stylesheet" href="/static/css/current.css">
+  <script defer src="/static/js/test/app.js"></script>
+  <style>
+    .tab-bar { display: flex; gap: 0; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .tab-bar button { flex: 1; border-radius: 0; padding: 10px; background: var(--surface); color: var(--muted); font-size: 13px; }
+    .tab-bar button.active { background: var(--accent); color: #fff; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .upload-zone.test-upload { padding: 24px; margin-bottom: 12px; }
+    .upload-zone.test-upload.drag-over { border-color: var(--accent); background: var(--surface-2); }
+    .test-status { font-size: 13px; color: var(--muted); margin: 0; }
+    #modelFilter { margin-bottom: 8px; }
+    .results-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+    .results-table th, .results-table td { padding: 6px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border); }
+    .results-table th { background: var(--surface-2); font-weight: 600; position: sticky; top: 0; }
+    .results-table-wrap { overflow-x: auto; max-height: 500px; overflow-y: auto; border: 1px solid var(--border); border-radius: 14px; }
+    .table-info { font-size: 13px; color: var(--muted); margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <nav class="top-nav">
+    <a href="/">◀ <span data-i18n="nav_main">Main</span></a>
+    <a href="/train"><span data-i18n="nav_train">Training</span> ▶</a>
+  </nav>
+  <main class="page">
+    <section class="card hero">
+      <div class="hero-copy">
+        <p class="eyebrow" data-i18n="test_hero_eyebrow">Ophiocordyceps</p>
+        <h1 data-i18n="test_hero_title">Testing workspace</h1>
+        <p class="lead" data-i18n="test_hero_lead">Select a model, upload CSV with features, and get batch predictions.</p>
+      </div>
+      <div class="hero-tools">
+        <label class="field compact">
+          <span data-i18n="theme_label">Theme</span>
+          <select id="themeSelect"></select>
+        </label>
+        <label class="field compact">
+          <span data-i18n="language_label">Language</span>
+          <select id="languageSelect"></select>
+        </label>
+      </div>
+    </section>
+
+    <section class="card section" id="modelSection">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow" data-i18n="test_model_eyebrow">Step 1</p>
+          <h2 data-i18n="test_model_title">Select model</h2>
+        </div>
+      </div>
+
+      <div class="tab-bar" id="modelTabBar">
+        <button type="button" class="active" data-tab="server" data-i18n="test_tab_server">From server</button>
+        <button type="button" data-tab="upload" data-i18n="test_tab_upload">Upload file</button>
+      </div>
+
+      <div class="tab-content active" id="tabServer">
+        <input type="text" id="modelFilter" data-i18n="test_model_filter" placeholder="Filter models…">
+        <div class="model-select-group">
+          <select id="modelSelect"><option value="" data-i18n="test_select_hint">-- Select a model --</option></select>
+        </div>
+        <div class="actions" style="margin-top:12px">
+          <button type="button" id="selectModelBtn" class="primary" data-i18n="test_select_model">Select</button>
+          <button type="button" id="refreshModelsBtn" class="secondary" data-i18n="test_refresh">Refresh</button>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tabUpload">
+        <div class="upload-zone test-upload" id="modelUploadZone">
+          <input type="file" id="modelFileInput" accept=".model" hidden>
+          <p data-i18n="test_upload_hint">Click or drag a .model file here</p>
+        </div>
+        <p id="uploadModelStatus" class="test-status"></p>
+        <div class="actions">
+          <button type="button" id="confirmUploadBtn" class="primary" data-i18n="test_confirm_upload">Use this model</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card section" id="csvSection" style="display:none">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow" data-i18n="test_csv_eyebrow">Step 2</p>
+          <h2 data-i18n="test_csv_title">Upload CSV to predict</h2>
+        </div>
+        <p id="loadedModelPill" class="pill"></p>
+      </div>
+
+      <div class="upload-zone test-upload" id="csvUploadZone">
+        <input type="file" id="csvFileInput" accept=".csv" hidden>
+        <p data-i18n="test_csv_hint">Click or drag a CSV file here</p>
+      </div>
+      <p id="csvStatus" class="test-status"></p>
+
+      <div id="featureStatus" style="margin-top:8px"></div>
+
+      <div class="actions" style="margin-top:12px">
+        <button type="button" id="predictBtn" class="primary" disabled data-i18n="test_predict_btn">Predict</button>
+        <button type="button" id="clearAllBtn" class="secondary" data-i18n="test_clear_csv">Clear CSV</button>
+      </div>
+    </section>
+
+    <section class="card section" id="resultsSection" style="display:none">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow" data-i18n="test_results_eyebrow">Results</p>
+          <h2 data-i18n="test_results_title">Predictions</h2>
+        </div>
+      </div>
+      <p id="resultsInfo" class="table-info"></p>
+      <div class="results-table-wrap" id="resultsWrap">
+        <table class="results-table" id="resultsTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="actions" style="margin-top:12px">
+        <a id="downloadResultsBtn" class="button primary btn" style="display:none" data-i18n="test_download_csv">Download CSV</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

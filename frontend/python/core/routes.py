@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 import datetime
 import json
 import mimetypes
 import re
+import uuid
 
 from http import HTTPStatus
 from http.cookies import SimpleCookie
@@ -11,7 +13,10 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
-from core.config import LAYOUT_DIR, STATIC_DIR, TEMP_DIR
+import joblib
+import pandas as pd
+
+from core.config import LAYOUT_DIR, TEST_LAYOUT_DIR, FRONTEND_DIR, STATIC_DIR, TEMP_DIR, MODEL_TEMP_DIR, MODELS_DIR
 
 from core.sessions import (
     COOKIE_NAME,
@@ -33,12 +38,12 @@ from modules.language_manager import (
     validate_language,
 )
 
-from modules.training_form import (
+from train.modules.training_form import (
     get_training_form,
     save_training_form,
 )
 
-from modules.training_output import (
+from train.modules.training_output import (
     get_output,
     append_output,
     clear_output,
@@ -59,11 +64,16 @@ from modules.csv_handler import (
     clear_uploaded,
 )
 
-from modules.trainer import (
+from train.modules.trainer import (
     get_available_algorithms,
     start_training,
     get_training_status,
     save_to_server,
+)
+
+from testing.modules.predictor import (
+    load_model,
+    predict_csv,
 )
 
 CONTENT_TYPES = {
@@ -199,7 +209,19 @@ class TrainHandler(BaseHTTPRequestHandler):
         sid, session_config = self._resolve_session()
 
         if path in ("/", "/index.html"):
+            html = (FRONTEND_DIR / "res" / "layout" / "index.html").read_text(encoding="utf-8")
+            send_text(self, HTTPStatus.OK, html, "text/html; charset=utf-8", session_id=sid)
+            return
+
+        train_paths = ("/train", "/train/", "/train/index.html")
+        if path in train_paths:
             html = (LAYOUT_DIR / "index.html").read_text(encoding="utf-8")
+            send_text(self, HTTPStatus.OK, html, "text/html; charset=utf-8", session_id=sid)
+            return
+
+        test_paths = ("/test", "/test/", "/test/index.html")
+        if path in test_paths:
+            html = (TEST_LAYOUT_DIR / "index.html").read_text(encoding="utf-8")
             send_text(self, HTTPStatus.OK, html, "text/html; charset=utf-8", session_id=sid)
             return
 
@@ -267,7 +289,7 @@ class TrainHandler(BaseHTTPRequestHandler):
             if not token:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
                 return
-            from modules.trainer import training_states
+            from train.modules.trainer import training_states
             state = training_states.get(sid)
             if state is None or state["status"] != "done":
                 self.send_error(HTTPStatus.BAD_REQUEST, "No trained model")
@@ -441,7 +463,58 @@ class TrainHandler(BaseHTTPRequestHandler):
                 send_json(self, HTTPStatus.OK, {"cleared": True}, session_id=sid)
                 return
 
-        except (FileNotFoundError, FileExistsError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            # ── Test app endpoints ──
+
+            if path == "/api/test/model_info":
+                model_name = str(payload.get("model_name", ""))
+                if not model_name:
+                    raise ValueError("model_name required")
+                metrics = get_model_metrics(model_name)
+                if metrics:
+                    send_json(self, HTTPStatus.OK, {
+                        "feature_cols": metrics.get("feature_cols", []),
+                        "target_col": metrics.get("target_col", ""),
+                        "task": metrics.get("task", "auto"),
+                        "has_metadata": True,
+                    }, session_id=sid)
+                else:
+                    send_json(self, HTTPStatus.OK, {
+                        "feature_cols": [],
+                        "target_col": "",
+                        "task": "auto",
+                        "has_metadata": False,
+                    }, session_id=sid)
+                return
+
+            if path == "/api/test/upload":
+                b64_data = str(payload.get("data", ""))
+                if not b64_data:
+                    raise ValueError("No file data provided")
+                raw = base64.b64decode(b64_data)
+                token = str(uuid.uuid4())
+                MODEL_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+                dest = MODEL_TEMP_DIR / f"test_{token}.model"
+                dest.write_bytes(raw)
+                send_json(self, HTTPStatus.OK, {"token": token, "filename": dest.name}, session_id=sid)
+                return
+
+            if path == "/api/test/predict_csv":
+                model_name = str(payload.get("model_name", ""))
+                upload_token = str(payload.get("upload_token", ""))
+                raw_cols = payload.get("feature_cols")
+                feature_cols = list(raw_cols) if raw_cols else None
+
+                model = load_model(model_name=model_name, upload_token=upload_token)
+
+                csv_path = get_csv_path()
+                if not csv_path:
+                    raise ValueError("No CSV uploaded. Upload a CSV file first.")
+
+                result = predict_csv(model, csv_path, feature_cols)
+                send_json(self, HTTPStatus.OK, result, session_id=sid)
+                return
+
+        except (FileNotFoundError, FileExistsError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
             send_json(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)}, session_id=sid)
             return
 

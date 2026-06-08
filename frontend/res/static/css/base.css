@@ -95,6 +95,36 @@ input[type="number"]::-moz-number-spin-box {
   gap: 20px;
 }
 
+.top-nav {
+  display: flex;
+  gap: 8px;
+  padding: 12px 0 0;
+  width: min(1200px, calc(100% - 32px));
+  margin: 0 auto;
+}
+
+.top-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  text-decoration: none;
+  font-size: 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--accent-2);
+  transition: opacity 0.15s;
+}
+
+.top-nav a:hover {
+  opacity: 0.7;
+}
+
+.hero-tools {
+  display: grid;
+  gap: 16px;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);

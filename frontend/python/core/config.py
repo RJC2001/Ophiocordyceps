@@ -4,11 +4,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-ROOT_DIR = Path(__file__).resolve().parents[4]
+ROOT_DIR = Path(__file__).resolve().parents[3]
 FRONTEND_DIR = ROOT_DIR / "frontend"
 DB_DIR = ROOT_DIR / "db"
 
 LAYOUT_DIR = FRONTEND_DIR / "res" / "layout" / "train"
+TEST_LAYOUT_DIR = FRONTEND_DIR / "res" / "layout" / "test"
 STATIC_DIR = FRONTEND_DIR / "res" / "static"
 CSS_DIR = STATIC_DIR / "css"
 THEME_DIR = CSS_DIR / "themes"
@@ -20,6 +21,7 @@ FORM_CONFIG_PATH = CONFIG_DIR / "train_form.json"
 
 MODELS_DIR = DB_DIR / "models"
 TEMP_DIR = DB_DIR / "temp"
+MODEL_TEMP_DIR = DB_DIR / "temp_models"
 
 
 def ensure_parent(path: Path) -> None:

@@ -365,6 +365,8 @@ def _train_worker(
         state["metrics"] = metrics
         state["_model"] = model
         state["_csv_path"] = csv_path
+        state["_feature_cols"] = feature_cols
+        state["_target_col"] = target_col
 
         tmp_dir = MODELS_DIR.parent / "temp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -458,19 +460,22 @@ def save_to_server(session_id: str, name: str) -> str:
     dest = models_dir / name
     joblib.dump(model, dest)
 
-    metrics = state.get("metrics")
-    if metrics:
-        try:
-            import json as _json
-            index_path = models_dir / "_metrics.json"
-            index: dict = {}
-            if index_path.exists():
-                with open(index_path) as f:
-                    index = _json.load(f)
-            index[name] = metrics
-            with open(index_path, "w") as f:
-                _json.dump(index, f, indent=2)
-        except Exception:
-            pass
+    metrics = state.get("metrics") or {}
+    metadata = dict(metrics)
+    metadata["feature_cols"] = state.get("_feature_cols", [])
+    metadata["target_col"] = state.get("_target_col", "")
+    metadata["task"] = metrics.get("task", "auto")
+    try:
+        import json as _json
+        index_path = models_dir / "_metrics.json"
+        index: dict = {}
+        if index_path.exists():
+            with open(index_path) as f:
+                index = _json.load(f)
+        index[name] = metadata
+        with open(index_path, "w") as f:
+            _json.dump(index, f, indent=2)
+    except Exception:
+        pass
 
     return str(dest)
