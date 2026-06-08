@@ -210,18 +210,24 @@ class TrainHandler(BaseHTTPRequestHandler):
         sid, session_config = self._resolve_session()
 
         if path in ("/", "/index.html"):
+            clear_uploaded(sid)
+            clean_model_temp(sid)
             html = (FRONTEND_DIR / "res" / "layout" / "index.html").read_text(encoding="utf-8")
             send_text(self, HTTPStatus.OK, html, "text/html; charset=utf-8", session_id=sid)
             return
 
         train_paths = ("/train", "/train/", "/train/index.html")
         if path in train_paths:
+            clear_uploaded(sid)
+            clean_model_temp(sid)
             html = (LAYOUT_DIR / "index.html").read_text(encoding="utf-8")
             send_text(self, HTTPStatus.OK, html, "text/html; charset=utf-8", session_id=sid)
             return
 
         test_paths = ("/test", "/test/", "/test/index.html")
         if path in test_paths:
+            clear_uploaded(sid)
+            clean_model_temp(sid)
             html = (TEST_LAYOUT_DIR / "index.html").read_text(encoding="utf-8")
             send_text(self, HTTPStatus.OK, html, "text/html; charset=utf-8", session_id=sid)
             return
@@ -253,7 +259,7 @@ class TrainHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/dataset":
-            data = get_uploaded_csv()
+            data = get_uploaded_csv(sid)
             if data is None:
                 send_json(self, HTTPStatus.OK, {"uploaded": False}, session_id=sid)
             else:
@@ -391,12 +397,12 @@ class TrainHandler(BaseHTTPRequestHandler):
                 b64_data = str(payload.get("data", ""))
                 if not b64_data:
                     raise ValueError("No file data provided")
-                result = upload_csv(filename, b64_data)
+                result = upload_csv(filename, b64_data, sid)
                 send_json(self, HTTPStatus.OK, result, session_id=sid)
                 return
 
             if path == "/api/train/start":
-                csv_path = get_csv_path()
+                csv_path = get_csv_path(sid)
                 if csv_path is None:
                     raise ValueError("No CSV uploaded")
                 target_col = str(payload.get("target_col", ""))
@@ -459,7 +465,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/dataset/clear":
-                clear_uploaded()
+                clear_uploaded(sid)
                 send_json(self, HTTPStatus.OK, {"cleared": True}, session_id=sid)
                 return
 
@@ -492,9 +498,9 @@ class TrainHandler(BaseHTTPRequestHandler):
                     raise ValueError("No file data provided")
                 raw = base64.b64decode(b64_data)
                 token = str(uuid.uuid4())
-                clean_model_temp()
+                clean_model_temp(sid)
                 MODEL_TEMP_DIR.mkdir(parents=True, exist_ok=True)
-                dest = MODEL_TEMP_DIR / f"test_{token}.model"
+                dest = MODEL_TEMP_DIR / f"{sid}_test_{token}.model"
                 dest.write_bytes(raw)
                 send_json(self, HTTPStatus.OK, {"token": token, "filename": dest.name}, session_id=sid)
                 return
@@ -505,9 +511,9 @@ class TrainHandler(BaseHTTPRequestHandler):
                 raw_cols = payload.get("feature_cols")
                 feature_cols = list(raw_cols) if raw_cols else None
 
-                model = load_model(model_name=model_name, upload_token=upload_token)
+                model = load_model(model_name=model_name, upload_token=upload_token, session_id=sid)
 
-                csv_path = get_csv_path()
+                csv_path = get_csv_path(sid)
                 if not csv_path:
                     raise ValueError("No CSV uploaded. Upload a CSV file first.")
 

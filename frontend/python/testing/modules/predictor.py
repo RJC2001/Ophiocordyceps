@@ -10,11 +10,13 @@ from core.config import MODELS_DIR, TEMP_DIR, MODEL_TEMP_DIR
 from modules.model_manager import get_model_path
 
 
-def load_model(model_name: str = "", upload_token: str = "") -> object:
+def load_model(model_name: str = "", upload_token: str = "", session_id: str = "") -> object:
     if model_name:
         model_path = get_model_path(model_name)
     elif upload_token:
-        model_path = MODEL_TEMP_DIR / f"test_{upload_token}.model"
+        if not session_id:
+            raise ValueError("session_id required with upload_token")
+        model_path = MODEL_TEMP_DIR / f"{session_id}_test_{upload_token}.model"
         if not model_path.exists():
             raise FileNotFoundError(f"Uploaded model not found: {upload_token}")
     else:

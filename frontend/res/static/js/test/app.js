@@ -45,6 +45,13 @@ async function loadTranslations(language) {
 
 function t(key) { return translations[key] ?? key; }
 
+function pt(prefix, n) {
+  const _n = Math.abs(n);
+  if (_n === 1) return t(prefix + "_1");
+  if (_n % 10 >= 2 && _n % 10 <= 4 && (_n % 100 < 10 || _n % 100 >= 20)) return t(prefix + "_2");
+  return t(prefix + "_5");
+}
+
 function applyTranslations() {
   document.documentElement.lang = languageSelect.value || "en";
   document.querySelectorAll("[data-i18n]").forEach(node => {
@@ -227,7 +234,7 @@ async function handleCsvFile(file) {
     });
     csvToken = file.name;
     csvColumnNames = result.columns || [];
-    csvStatus.textContent = file.name + " (" + result.total_lines + " rows, " + result.columns.length + " cols)";
+    csvStatus.textContent = file.name + " (" + pt("rows", result.total_lines).replace("{n}", result.total_lines) + ", " + pt("cols", result.columns.length).replace("{n}", result.columns.length) + ")";
 
     revalidateFeatures();
   } catch (err) {
