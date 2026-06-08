@@ -62,6 +62,7 @@ from modules.csv_handler import (
     get_uploaded_csv,
     get_csv_path,
     clear_uploaded,
+    clean_model_temp,
 )
 
 from train.modules.trainer import (
@@ -491,6 +492,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                     raise ValueError("No file data provided")
                 raw = base64.b64decode(b64_data)
                 token = str(uuid.uuid4())
+                clean_model_temp()
                 MODEL_TEMP_DIR.mkdir(parents=True, exist_ok=True)
                 dest = MODEL_TEMP_DIR / f"test_{token}.model"
                 dest.write_bytes(raw)

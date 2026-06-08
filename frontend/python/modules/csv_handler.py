@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from core.config import TEMP_DIR
+from core.config import TEMP_DIR, MODEL_TEMP_DIR
 
 _uploaded_csv: dict[str, Any] | None = None
 
@@ -17,6 +17,12 @@ def _clean_temp() -> None:
     if TEMP_DIR.exists():
         shutil.rmtree(TEMP_DIR)
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def clean_model_temp() -> None:
+    if MODEL_TEMP_DIR.exists():
+        shutil.rmtree(MODEL_TEMP_DIR)
+    MODEL_TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def upload_csv(filename: str, b64_data: str) -> dict[str, Any]:

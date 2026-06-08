@@ -31,6 +31,10 @@ def get_port() -> int:
 def run_server() -> None:
     host = get_host()
     port = get_port()
+
+    from modules.csv_handler import clean_model_temp
+    clean_model_temp()
+
     server = ThreadingHTTPServer((host, port), TrainHandler)
     try:
         print(f"Serving on http://localhost:{port}")
