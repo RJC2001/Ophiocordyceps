@@ -135,6 +135,7 @@ async function handleFile(file) {
   } catch (err) {
     alert(err.message);
   }
+  fileInput.value = "";
 }
 
 function showDatasetInfo(data) {
@@ -236,6 +237,7 @@ clearDataset.addEventListener("click", async () => {
   resultsSection.hidden = true;
   disableResults();
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  fileInput.value = "";
 });
 
 // ── Algorithms ──

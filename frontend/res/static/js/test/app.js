@@ -233,6 +233,7 @@ async function handleCsvFile(file) {
   } catch (err) {
     alert(err.message);
   }
+  csvFileInput.value = "";
 }
 
 // ── Re-validate features after model or CSV change ──
@@ -362,6 +363,7 @@ clearAllBtn.addEventListener("click", () => {
   featureStatus.innerHTML = "";
   csvStatus.textContent = "";
   predictBtn.disabled = true;
+  csvFileInput.value = "";
 });
 
 // ── Init ──
