@@ -69,6 +69,7 @@
   "download_model": "Download model",
   "save_to_server": "Save to server",
   "save_server_label": "Model name (optional)",
+  "admin_prompt": "Enter admin password:",
   "save_prompt": "Enter a name for the model:",
   "save_btn": "Save",
   "enter_model_name": "Enter a model name.",

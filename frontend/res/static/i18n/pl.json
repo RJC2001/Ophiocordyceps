@@ -71,6 +71,7 @@
   "download_model": "Pobierz model",
   "save_to_server": "Zapisz na serwerze",
   "save_server_label": "Nazwa modelu (opcjonalnie)",
+  "admin_prompt": "Podaj hasło administratora:",
   "save_prompt": "Podaj nazwę modelu:",
   "save_btn": "Zapisz",
   "enter_model_name": "Wpisz nazwę modelu.",

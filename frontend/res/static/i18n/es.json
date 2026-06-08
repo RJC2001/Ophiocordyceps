@@ -48,6 +48,7 @@
   "results_title": "Metrics",
   "download_model": "Download model",
   "save_server_label": "Save to server (optional)",
+  "admin_prompt": "Introduce la contraseña de administrador:",
   "save_prompt": "Introduce un nombre para el modelo:",
   "save_btn": "Save",
   "enter_model_name": "Enter a model name.",

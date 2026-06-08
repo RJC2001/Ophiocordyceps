@@ -48,6 +48,12 @@ async function loadTranslations(language) {
 
 function t(key) { return translations[key] ?? key; }
 
+const ADMIN_PASSWORD = "88274";
+
+function requireAdmin() {
+  return prompt(t("admin_prompt")) === ADMIN_PASSWORD;
+}
+
 function pt(prefix, n) {
   const _n = Math.abs(n);
   if (_n === 1) return t(prefix + "_1");
@@ -530,6 +536,7 @@ function showResults(metrics) {
 // ── Save to Server ──
 
 saveConfirmBtn.addEventListener("click", async () => {
+  if (!requireAdmin()) return;
   const name = prompt(t("save_prompt"));
   if (!name) return;
   try {
@@ -623,6 +630,7 @@ function renderModels(models) {
     renameBtn.className = "button-secondary";
     renameBtn.textContent = t("rename");
     renameBtn.addEventListener("click", async () => {
+      if (!requireAdmin()) return;
       const displayName = item.stem || item.name;
       const newName = prompt(t("rename_prompt").replace("{name}", displayName), displayName);
       if (!newName || newName === displayName) return;
@@ -643,6 +651,7 @@ function renderModels(models) {
     delBtn.className = "danger";
     delBtn.textContent = t("delete");
     delBtn.addEventListener("click", async () => {
+      if (!requireAdmin()) return;
       const delDisplay = item.stem || item.name;
       if (!confirm(t("delete_confirm").replace("{name}", delDisplay))) return;
       await api("/api/models/delete", {
