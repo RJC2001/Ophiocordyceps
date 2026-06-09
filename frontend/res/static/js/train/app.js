@@ -507,9 +507,17 @@ function startPolling() {
   }, 500);
 }
 
+const MAX_LOG_LINES = 500;
+
 function appendLog(line) {
   const text = outputLog.textContent;
-  outputLog.textContent = text ? text + "\n" + line : line;
+  const updated = text ? text + "\n" + line : line;
+  const lines = updated.split("\n");
+  if (lines.length > MAX_LOG_LINES) {
+    outputLog.textContent = lines.slice(lines.length - MAX_LOG_LINES).join("\n");
+  } else {
+    outputLog.textContent = updated;
+  }
   outputLog.scrollTop = outputLog.scrollHeight;
 }
 

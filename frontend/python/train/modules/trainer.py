@@ -229,8 +229,12 @@ def _train_worker(
     state["log"] = []
     log = state["log"]
 
+    MAX_LOG_LINES = 500
+
     def log_msg(msg: str) -> None:
         log.append(msg)
+        if len(log) > MAX_LOG_LINES:
+            log[: len(log) - MAX_LOG_LINES] = []
 
     try:
         log_msg(f"Loading data from {Path(csv_path).name}...")
