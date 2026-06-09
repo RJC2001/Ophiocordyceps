@@ -296,6 +296,9 @@ def _train_worker(
                 else:
                     fold_metrics.setdefault("mae", []).append(mean_absolute_error(y_fold_val, y_fold_pred))
                     fold_metrics.setdefault("mse", []).append(mean_squared_error(y_fold_val, y_fold_pred))
+                    fold_metrics.setdefault("rmse", []).append(
+                        float(np.sqrt(mean_squared_error(y_fold_val, y_fold_pred)))
+                    )
                     fold_metrics.setdefault("r2", []).append(r2_score(y_fold_val, y_fold_pred))
 
                 log_msg(f"  Fold {fold_idx + 1}/{k_folds} complete")
