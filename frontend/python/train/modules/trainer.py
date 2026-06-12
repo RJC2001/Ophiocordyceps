@@ -9,6 +9,7 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.ensemble import (
     RandomForestClassifier,
     RandomForestRegressor,
@@ -32,11 +33,23 @@ from sklearn.model_selection import KFold, cross_val_score, train_test_split
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.svm import SVC, SVR
 
-from core.config import MODELS_DIR
+from core.config import MODELS_CSV_DIR
+from modules.csv_handler import get_uploaded_csv
 
 training_states: dict[str, dict[str, Any]] = {}
 
 ALGORITHMS = {
+    "dummy": {
+        "label": "Dummy",
+        "description": "Always predicts a constant value based on a simple strategy. Use as a reference to evaluate other models.",
+        "params": {
+            "strategy": {
+                "type": "select",
+                "default": "most_frequent",
+                "options": ["most_frequent", "prior", "stratified", "uniform", "constant", "mean", "median", "quantile"],
+            },
+        },
+    },
     "random_forest": {
         "label": "Random Forest",
         "description": "Ensemble of decision trees. Handles non-linear relationships, resistant to overfitting. Good default choice for classification and regression.",
@@ -79,7 +92,8 @@ ALGORITHMS = {
                 "min": 0.00001,
                 "max": 1.0,
             },
-            "epochs": {"type": "int", "default": 200, "min": 1, "max": 10000},
+            "epochs": {"type": "int", "default": 1000, "min": 1, "max": 10000},
+            "batch_size": {"type": "int", "default": 0, "min": 0, "max": 1024},
         },
     },
     "xgboost": {
@@ -115,6 +129,19 @@ def get_available_algorithms() -> dict[str, Any]:
 def _build_model(
     algorithm: str, task: str, params: dict[str, Any]
 ) -> object:
+    if algorithm == "dummy":
+        strategy = str(params.get("strategy", ""))
+        cls_strategies = {"most_frequent", "prior", "stratified", "uniform", "constant"}
+        reg_strategies = {"mean", "median", "quantile", "constant"}
+        if task == "classification":
+            if strategy not in cls_strategies:
+                strategy = "most_frequent"
+            return DummyClassifier(strategy=strategy)
+        else:
+            if strategy not in reg_strategies:
+                strategy = "mean"
+            return DummyRegressor(strategy=strategy)
+
     if algorithm == "random_forest":
         md = params.get("max_depth", 0)
         kwargs = {
@@ -161,6 +188,7 @@ def _build_model(
             "hidden_layer_sizes": hidden,
             "learning_rate_init": float(params.get("learning_rate", 0.001)),
             "max_iter": int(params.get("epochs", 200)),
+            "batch_size": int(params.get("batch_size", 0)) or "auto",
             "random_state": 42,
         }
         if task == "classification":
@@ -199,6 +227,22 @@ def _detect_task(y: pd.Series) -> str:
     return "classification"
 
 
+def _cancellable_fit(model: Any, X_train, y_train, cancelled_fn) -> bool:
+    if isinstance(model, MLPClassifier):
+        max_epochs = model.max_iter
+        model.set_params(warm_start=True, max_iter=1)
+        for _ in range(max_epochs):
+            if cancelled_fn():
+                return True
+            model.fit(X_train, y_train)
+        return False
+    else:
+        if cancelled_fn():
+            return True
+        model.fit(X_train, y_train)
+        return False
+
+
 def _train_worker(
     session_id: str,
     csv_path: str,
@@ -227,6 +271,7 @@ def _train_worker(
     )
     state["status"] = "running"
     state["log"] = []
+    state["_cancel"] = False
     log = state["log"]
 
     MAX_LOG_LINES = 500
@@ -237,6 +282,9 @@ def _train_worker(
             log[: len(log) - MAX_LOG_LINES] = []
 
     try:
+        if random_state == -1:
+            random_state = None
+
         log_msg(f"Loading data from {Path(csv_path).name}...")
         df = pd.read_csv(csv_path)
         log_msg(f"Loaded {len(df)} rows, {len(df.columns)} columns")
@@ -257,7 +305,8 @@ def _train_worker(
             log_msg(f"Classes: {class_dist}")
 
         model = _build_model(algorithm, task, params)
-        metrics: dict[str, Any] = {"task": task}
+        algo_label = ALGORITHMS.get(algorithm, {}).get("label", algorithm)
+        metrics: dict[str, Any] = {"task": task, "algorithm": algo_label}
         y_test = None
         y_pred = None
 
@@ -268,10 +317,17 @@ def _train_worker(
             all_y_test: list[float] = []
             all_y_pred: list[float] = []
             for fold_idx, (train_idx, val_idx) in enumerate(kf.split(X)):
+                if state.get("_cancel"):
+                    log_msg("Training cancelled by user")
+                    state["status"] = "cancelled"
+                    return
                 X_fold_train, X_fold_val = X.iloc[train_idx], X.iloc[val_idx]
                 y_fold_train, y_fold_val = y.iloc[train_idx], y.iloc[val_idx]
                 model_fold = _build_model(algorithm, task, params)
-                model_fold.fit(X_fold_train, y_fold_train)
+                if _cancellable_fit(model_fold, X_fold_train, y_fold_train, lambda: state.get("_cancel")):
+                    log_msg("Training cancelled by user")
+                    state["status"] = "cancelled"
+                    return
                 y_fold_pred = model_fold.predict(X_fold_val)
 
                 all_y_test.extend(y_fold_val.tolist())
@@ -314,8 +370,15 @@ def _train_worker(
                 metrics[key] = round(float(np.mean(values)), 4)
             log_msg(f"CV metrics (mean across folds): {metrics}")
 
+            if state.get("_cancel"):
+                log_msg("Training cancelled by user")
+                state["status"] = "cancelled"
+                return
             log_msg("Training final model on full dataset...")
-            model.fit(X, y)
+            if _cancellable_fit(model, X, y, lambda: state.get("_cancel")):
+                log_msg("Training cancelled by user")
+                state["status"] = "cancelled"
+                return
             log_msg("Final model trained on all data")
 
         else:
@@ -334,17 +397,11 @@ def _train_worker(
 
             log_msg(f"Training {algorithm}...")
 
-            if algorithm == "neural_network":
-                original_fit = model.fit
-                def patched_fit(X, y, **kwargs):
-                    model.n_iter_ = 0
-                    result = original_fit(X, y, **kwargs)
-                    log_msg(f"Training completed in {model.n_iter_} iterations")
-                    return result
-                model.fit = patched_fit
-
             fit_start = time.time()
-            model.fit(X_train, y_train)
+            if _cancellable_fit(model, X_train, y_train, lambda: state.get("_cancel")):
+                log_msg("Training cancelled by user")
+                state["status"] = "cancelled"
+                return
             fit_time = time.time() - fit_start
             log_msg(f"Training complete ({fit_time:.2f}s)")
 
@@ -392,7 +449,7 @@ def _train_worker(
         state["_y_test"] = y_test_list
         state["_y_pred"] = y_pred_list
 
-        tmp_dir = MODELS_DIR.parent / "temp"
+        tmp_dir = MODELS_CSV_DIR.parent / "temp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         model_file = tmp_dir / f"{Path(csv_path).stem}.model"
         joblib.dump(model, model_file)
@@ -405,6 +462,13 @@ def _train_worker(
         state["status"] = "error"
         state["error"] = str(e)
         log_msg(f"ERROR: {e}")
+
+
+def cancel_training(session_id: str) -> dict[str, Any]:
+    state = training_states.get(session_id)
+    if state:
+        state["_cancel"] = True
+    return {"status": "cancelling"}
 
 
 def start_training(
@@ -473,16 +537,16 @@ def save_to_server(session_id: str, name: str) -> str:
 
     name = name.strip()
     if not name:
-        csv_path = state.get("_csv_path")
-        if csv_path:
-            name = Path(csv_path).stem
+        csv_info = get_uploaded_csv(session_id)
+        if csv_info and csv_info.get("filename"):
+            name = Path(csv_info["filename"]).stem
         else:
             name = "model"
 
     if not name.endswith(".model"):
         name += ".model"
 
-    models_dir = MODELS_DIR
+    models_dir = MODELS_CSV_DIR
     models_dir.mkdir(parents=True, exist_ok=True)
     dest = models_dir / name
     joblib.dump(model, dest)

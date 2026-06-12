@@ -12,7 +12,7 @@ from modules.model_manager import get_model_path
 
 def load_model(model_name: str = "", upload_token: str = "", session_id: str = "") -> object:
     if model_name:
-        model_path = get_model_path(model_name)
+        model_path = get_model_path(model_name, "csv")
     elif upload_token:
         if not session_id:
             raise ValueError("session_id required with upload_token")

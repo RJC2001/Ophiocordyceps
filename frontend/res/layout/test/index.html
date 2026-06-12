@@ -7,6 +7,7 @@
   <link rel="icon" type="image/png" href="/static/drawable/ophiocordyceps.png">
   <link rel="apple-touch-icon" href="/static/drawable/ophiocordyceps.png">
   <link rel="stylesheet" href="/static/css/current.css">
+  <script defer src="/static/js/menu.js"></script>
   <script defer src="/static/js/test/app.js"></script>
   <style>
     .tab-bar { display: flex; gap: 0; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
@@ -18,6 +19,7 @@
     .upload-zone.test-upload.drag-over { border-color: var(--accent); background: var(--surface-2); }
     .test-status { font-size: 13px; color: var(--muted); margin: 0; }
     #modelFilter { margin-bottom: 8px; }
+    #imgModelFilter { margin-bottom: 8px; }
     .results-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
     .results-table th, .results-table td { padding: 6px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border); }
     .results-table th { background: var(--surface-2); font-weight: 600; position: sticky; top: 0; }
@@ -35,7 +37,7 @@
       <div class="hero-copy">
         <p class="eyebrow" data-i18n="test_hero_eyebrow">Ophiocordyceps</p>
         <h1 data-i18n="test_hero_title">Testing workspace</h1>
-        <p class="lead" data-i18n="test_hero_lead">Select a model, upload CSV with features, and get batch predictions.</p>
+        <p class="lead" data-i18n="test_hero_lead">Select a model, upload test data, and get predictions.</p>
       </div>
       <div class="hero-tools">
         <label class="field compact">
@@ -49,83 +51,201 @@
       </div>
     </section>
 
-    <section class="card section" id="modelSection">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow" data-i18n="test_model_eyebrow">Step 1</p>
-          <h2 data-i18n="test_model_title">Select model</h2>
+    <!-- Mode Tabs -->
+    <div class="card section" style="padding:0">
+      <div class="mode-tabs">
+        <button type="button" class="mode-tab active" data-mode="csv" data-i18n="mode_csv">CSV</button>
+        <button type="button" class="mode-tab" data-mode="image" data-i18n="mode_image">Image</button>
+      </div>
+    </div>
+
+    <!-- ═══════════ CSV MODE ═══════════ -->
+    <div id="csvMode" class="mode-content active">
+      <section class="card section" id="modelSection">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="test_model_eyebrow">Step 1</p>
+            <h2 data-i18n="test_model_title">Select model</h2>
+          </div>
         </div>
-      </div>
 
-      <div class="tab-bar" id="modelTabBar">
-        <button type="button" class="active" data-tab="server" data-i18n="test_tab_server">From server</button>
-        <button type="button" data-tab="upload" data-i18n="test_tab_upload">Upload file</button>
-      </div>
+        <div class="tab-bar" id="modelTabBar">
+          <button type="button" class="active" data-tab="server" data-i18n="test_tab_server">From server</button>
+          <button type="button" data-tab="upload" data-i18n="test_tab_upload">Upload file</button>
+        </div>
 
-      <div class="tab-content active" id="tabServer">
-        <input type="text" id="modelFilter" data-i18n="test_model_filter" placeholder="Filter models…">
-        <div class="model-select-group">
-          <select id="modelSelect"><option value="" data-i18n="test_select_hint">-- Select a model --</option></select>
+        <div class="tab-content active" id="tabServer">
+          <input type="text" id="modelFilter" data-i18n="test_model_filter" placeholder="Filter models\u2026">
+          <div class="model-select-group">
+            <select id="modelSelect"><option value="" data-i18n="test_select_hint">-- Select a model --</option></select>
+          </div>
+          <div class="actions" style="margin-top:12px">
+            <button type="button" id="selectModelBtn" class="primary" data-i18n="test_select_model">Select</button>
+            <button type="button" id="refreshModelsBtn" class="secondary" data-i18n="test_refresh">Refresh</button>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tabUpload">
+          <div class="upload-zone test-upload" id="modelUploadZone">
+            <input type="file" id="modelFileInput" accept=".model" hidden>
+            <p data-i18n="test_upload_hint">Click or drag a .model file here</p>
+          </div>
+          <p id="uploadModelStatus" class="test-status"></p>
+          <div class="actions">
+            <button type="button" id="confirmUploadBtn" class="primary" data-i18n="test_confirm_upload">Use this model</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card section" id="csvSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="test_csv_eyebrow">Step 2</p>
+            <h2 data-i18n="test_csv_title">Upload CSV to predict</h2>
+          </div>
+          <p id="loadedModelPill" class="pill"></p>
+        </div>
+
+        <div class="upload-zone test-upload" id="csvUploadZone">
+          <input type="file" id="csvFileInput" accept=".csv" hidden>
+          <p data-i18n="test_csv_hint">Click or drag a CSV file here</p>
+        </div>
+        <p id="csvStatus" class="test-status"></p>
+
+        <div id="featureStatus" style="margin-top:8px"></div>
+
+        <div class="actions" style="margin-top:12px">
+          <button type="button" id="predictBtn" class="primary" disabled data-i18n="test_predict_btn">Predict</button>
+          <button type="button" id="csvTestCancelBtn" class="secondary" style="display:none" data-i18n="cancel_train">Cancel</button>
+          <button type="button" id="clearAllBtn" class="secondary" data-i18n="test_clear_csv">Clear CSV</button>
+        </div>
+      </section>
+
+      <section class="card section" id="resultsSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="test_results_eyebrow">Results</p>
+            <h2 data-i18n="test_results_title">Predictions</h2>
+          </div>
+        </div>
+        <p id="resultsInfo" class="table-info"></p>
+        <div class="results-table-wrap" id="resultsWrap">
+          <table class="results-table" id="resultsTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
         </div>
         <div class="actions" style="margin-top:12px">
-          <button type="button" id="selectModelBtn" class="primary" data-i18n="test_select_model">Select</button>
-          <button type="button" id="refreshModelsBtn" class="secondary" data-i18n="test_refresh">Refresh</button>
+          <a id="downloadResultsBtn" class="button primary btn" style="display:none" data-i18n="test_download_csv">Download CSV</a>
         </div>
-      </div>
+      </section>
+    </div>
 
-      <div class="tab-content" id="tabUpload">
-        <div class="upload-zone test-upload" id="modelUploadZone">
-          <input type="file" id="modelFileInput" accept=".model" hidden>
-          <p data-i18n="test_upload_hint">Click or drag a .model file here</p>
+    <!-- ═══════════ IMAGE MODE ═══════════ -->
+    <div id="imageMode" class="mode-content">
+
+      <!-- Step 1: Select Model -->
+      <section class="card section" id="imgModelSection">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="test_model_eyebrow">Step 1</p>
+            <h2 data-i18n="test_model_title">Select model</h2>
+          </div>
         </div>
-        <p id="uploadModelStatus" class="test-status"></p>
-        <div class="actions">
-          <button type="button" id="confirmUploadBtn" class="primary" data-i18n="test_confirm_upload">Use this model</button>
+
+        <div class="tab-bar" id="imgModelTabBar">
+          <button type="button" class="active" data-tab="server" data-i18n="test_tab_server">From server</button>
+          <button type="button" data-tab="upload" data-i18n="test_tab_upload">Upload file</button>
         </div>
-      </div>
-    </section>
 
-    <section class="card section" id="csvSection" style="display:none">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow" data-i18n="test_csv_eyebrow">Step 2</p>
-          <h2 data-i18n="test_csv_title">Upload CSV to predict</h2>
+        <div class="tab-content active" id="imgTabServer">
+          <input type="text" id="imgModelFilter" data-i18n="img_test_model_filter" placeholder="Filter image models\u2026">
+          <div class="model-select-group">
+            <select id="imgModelSelect"><option value="" data-i18n="test_select_hint">-- Select a model --</option></select>
+          </div>
+          <div class="actions" style="margin-top:12px">
+            <button type="button" id="imgSelectModelBtn" class="primary" data-i18n="test_select_model">Select</button>
+            <button type="button" id="imgRefreshModelsBtn" class="secondary" data-i18n="test_refresh">Refresh</button>
+          </div>
         </div>
-        <p id="loadedModelPill" class="pill"></p>
-      </div>
 
-      <div class="upload-zone test-upload" id="csvUploadZone">
-        <input type="file" id="csvFileInput" accept=".csv" hidden>
-        <p data-i18n="test_csv_hint">Click or drag a CSV file here</p>
-      </div>
-      <p id="csvStatus" class="test-status"></p>
-
-      <div id="featureStatus" style="margin-top:8px"></div>
-
-      <div class="actions" style="margin-top:12px">
-        <button type="button" id="predictBtn" class="primary" disabled data-i18n="test_predict_btn">Predict</button>
-        <button type="button" id="clearAllBtn" class="secondary" data-i18n="test_clear_csv">Clear CSV</button>
-      </div>
-    </section>
-
-    <section class="card section" id="resultsSection" style="display:none">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow" data-i18n="test_results_eyebrow">Results</p>
-          <h2 data-i18n="test_results_title">Predictions</h2>
+        <div class="tab-content" id="imgTabUpload">
+          <div class="upload-zone test-upload" id="imgModelUploadZone">
+            <input type="file" id="imgModelFileInput" accept=".model" hidden>
+            <p data-i18n="test_upload_hint">Click or drag a .model file here</p>
+          </div>
+          <p id="imgUploadModelStatus" class="test-status"></p>
+          <div class="actions">
+            <button type="button" id="imgConfirmUploadBtn" class="primary" data-i18n="test_confirm_upload">Use this model</button>
+          </div>
         </div>
-      </div>
-      <p id="resultsInfo" class="table-info"></p>
-      <div class="results-table-wrap" id="resultsWrap">
-        <table class="results-table" id="resultsTable">
-          <thead></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="actions" style="margin-top:12px">
-        <a id="downloadResultsBtn" class="button primary btn" style="display:none" data-i18n="test_download_csv">Download CSV</a>
-      </div>
-    </section>
+      </section>
+
+      <!-- Step 2: Upload Images -->
+      <section class="card section" id="imgTestUploadSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="img_test_step2">Step 2</p>
+            <h2 data-i18n="img_test_upload_title">Upload Images to Detect</h2>
+          </div>
+          <p id="imgTestModelPill" class="pill"></p>
+        </div>
+
+        <div class="upload-zone test-upload" id="imgTestUploadZone">
+          <input type="file" id="imgTestFileInput" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+          <p data-i18n="img_test_upload_hint">Click or drag images here (PNG, JPG, WEBP)</p>
+        </div>
+        <p id="imgTestStatus" class="test-status"></p>
+
+        <div class="tuning-sliders">
+
+          <div class="tuning-slider-wrap">
+            <span data-i18n="img_confidence_label">Confidence threshold:</span>
+            <input type="range"
+                   id="confidenceSlider"
+                   min="0"
+                   max="1"
+                   step="0.01"
+                   value="0.5">
+            <strong id="confidenceValue">0.50</strong>
+          </div>
+
+          <div class="tuning-slider-wrap">
+            <span data-i18n="img_merge_label">Merge overlap (NMS):</span>
+            <input type="range"
+                   id="mergeSlider"
+                   min="0"
+                   max="1"
+                   step="0.01"
+                   value="0">
+            <strong id="mergeValue">0.00</strong>
+          </div>
+
+        </div>
+
+        <div class="actions" style="margin-top:12px">
+          <button type="button" id="detectBtn" class="primary" disabled data-i18n="img_detect_btn">Detect Objects</button>
+          <button type="button" id="imgTestCancelBtn" class="secondary" style="display:none" data-i18n="img_cancel_test">Cancel</button>
+          <button type="button" id="imgTestClearBtn" class="secondary" data-i18n="img_test_clear">Clear</button>
+        </div>
+      </section>
+
+      <!-- Results -->
+      <section class="card section" id="imgTestResultsSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="test_results_eyebrow">Results</p>
+            <h2 data-i18n="img_test_results_title">Detection Results</h2>
+          </div>
+        </div>
+
+        <div id="imgTestPreview" class="img-test-preview"></div>
+
+        <div class="actions" style="margin-top:12px">
+          <a id="downloadDetectionsBtn" class="button primary btn" style="display:none" data-i18n="img_download_zip">Download ZIP</a>
+        </div>
+      </section>
+    </div>
   </main>
 </body>
 </html>

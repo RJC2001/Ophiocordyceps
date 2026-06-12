@@ -7,7 +7,12 @@
   <link rel="icon" type="image/png" href="/static/drawable/ophiocordyceps.png">
   <link rel="apple-touch-icon" href="/static/drawable/ophiocordyceps.png">
   <link rel="stylesheet" href="/static/css/current.css">
-  <script defer src="/static/js/train/app.js"></script>
+  <script defer src="/static/js/menu.js"></script>
+  <script defer src="/static/js/train/core.js"></script>
+  <script defer src="/static/js/train/csv.js"></script>
+  <script defer src="/static/js/train/image-annotate.js"></script>
+  <script defer src="/static/js/train/image-training.js"></script>
+  <script defer src="/static/js/train/init.js"></script>
 </head>
 <body>
   <nav class="top-nav">
@@ -19,7 +24,7 @@
       <div class="hero-copy">
         <p class="eyebrow" data-i18n="hero_eyebrow">Ophiocordyceps</p>
         <h1 data-i18n="hero_title">Training workspace</h1>
-        <p class="lead" data-i18n="hero_lead">Upload your CSV, configure the model, train, and download.</p>
+        <p class="lead" data-i18n="hero_lead">Upload data, configure the model, train, and download.</p>
       </div>
 
       <div class="hero-tools">
@@ -34,119 +39,347 @@
       </div>
     </section>
 
-    <!-- CSV Upload -->
-    <section class="card section" id="uploadSection">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow" data-i18n="upload_eyebrow">Step 1</p>
-          <h2 data-i18n="upload_title">Upload CSV</h2>
-        </div>
-        <span class="pill" id="uploadStatus" data-i18n="upload_pending">no file</span>
+    <!-- Mode Tabs -->
+    <div class="card section" style="padding:0">
+      <div class="mode-tabs">
+        <button type="button" class="mode-tab active" data-mode="csv" data-i18n="mode_csv">CSV</button>
+        <button type="button" class="mode-tab" data-mode="image" data-i18n="mode_image">Image</button>
       </div>
+    </div>
 
-      <div class="upload-zone" id="uploadZone">
-        <input type="file" id="fileInput" accept=".csv" hidden>
-        <p data-i18n="upload_hint">Click or drag a CSV file here</p>
-      </div>
+    <!-- ═══════════ CSV MODE ═══════════ -->
+    <div id="csvMode" class="mode-content active">
 
-      <div id="datasetInfo" class="dataset-info" hidden>
-        <div class="dataset-meta">
-          <strong id="datasetFilename"></strong>
-          <span id="datasetRows"></span>
-        </div>
-        <div class="table-wrap">
-          <table id="previewTable">
-            <thead></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-
-        <div class="column-selector">
-          <div class="col-select-group">
-            <label class="col-label" data-i18n="features_label">Features (X):</label>
-            <div id="featuresCheckboxes" class="checkbox-group"></div>
+      <!-- CSV Upload -->
+      <section class="card section" id="uploadSection">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="upload_eyebrow">Step 1</p>
+            <h2 data-i18n="upload_title">Upload CSV</h2>
           </div>
-          <div class="col-select-group">
-            <label class="col-label" data-i18n="target_label">Target (y):</label>
-            <div id="targetRadios" class="radio-group"></div>
+          <span class="pill" id="uploadStatus" data-i18n="upload_pending">no file</span>
+        </div>
+
+        <div class="upload-zone" id="uploadZone">
+          <input type="file" id="fileInput" accept=".csv" hidden>
+          <p data-i18n="upload_hint">Click or drag a CSV file here</p>
+        </div>
+
+        <div id="datasetInfo" class="dataset-info" hidden>
+          <div class="dataset-meta">
+            <strong id="datasetFilename"></strong>
+            <span id="datasetRows"></span>
           </div>
-        </div>
+          <div class="table-wrap">
+            <table id="previewTable">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+          </div>
 
-        <div class="actions">
-          <button type="button" id="clearDataset" class="secondary" data-i18n="clear">Clear</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- Preprocessing & Model Config -->
-    <section class="card section" id="trainSection">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow" data-i18n="train_eyebrow">Step 2</p>
-          <h2 data-i18n="train_title">Preprocessing & Model</h2>
-        </div>
-      </div>
-
-      <form id="trainForm">
-        <div class="preproc-grid">
-          <p class="preproc-title" data-i18n="preproc_title">Preprocessing</p>
-
-          <label class="preproc-field">
-            <span data-i18n="task_type_label">Task type</span>
-            <select name="task_type">
-              <option value="auto" data-i18n="task_auto">Auto-detect</option>
-              <option value="classification" data-i18n="task_classify">Classification</option>
-              <option value="regression" data-i18n="task_regress">Regression</option>
-            </select>
-          </label>
-
-          <div class="preproc-field full">
-            <span data-i18n="val_strategy_label">Validation strategy</span>
-            <div class="radio-group horizontal" id="valStrategyGroup">
-              <label class="radio-label">
-                <input type="radio" name="val_strategy" value="simple" checked>
-                <span data-i18n="val_strategy_simple">Simple split</span>
-              </label>
-              <label class="radio-label">
-                <input type="radio" name="val_strategy" value="kfold">
-                <span data-i18n="val_strategy_kfold">K-fold cross-validation</span>
-              </label>
-              <label class="checkbox-inline" style="margin-left:auto">
-                <input type="checkbox" name="shuffle" checked>
-                <span data-i18n="shuffle_label">Shuffle data</span>
-              </label>
+          <div class="column-selector">
+            <div class="col-select-group">
+              <label class="col-label" data-i18n="features_label">Features (X):</label>
+              <div id="featuresCheckboxes" class="checkbox-group"></div>
             </div>
-            <div id="randomSeedField" style="display:flex;justify-content:flex-end;margin-top:8px">
-              <label class="checkbox-inline">
-                <span style="font-size:12px" data-i18n="random_seed_label">Seed</span>
-                <input type="number" name="random_state" min="0" max="999999" step="1" value="42" style="width:70px">
-              </label>
+            <div class="col-select-group">
+              <label class="col-label" data-i18n="target_label">Target (y):</label>
+              <div id="targetRadios" class="radio-group"></div>
             </div>
           </div>
 
-          <div id="splitConfig" class="full">
-            <div class="preproc-field full split-bar-section" id="splitBarSection">
-                <div class="dual-slider" id="dualSlider">
-                  <div class="dual-slider-fills" id="sliderFills">
-                    <div class="dual-fill train" id="fillTrain">70%</div>
-                    <div class="dual-fill val" id="fillVal">15%</div>
-                    <div class="dual-fill test" id="fillTest">15%</div>
-                  </div>
-                  <div class="dual-thumb" id="thumbTrain" style="left:70%"><div class="dual-knob"></div></div>
-                  <div class="dual-thumb" id="thumbTest" style="left:85%"><div class="dual-knob"></div></div>
-                </div>
-                <div class="split-bar-labels">
-                  <span data-i18n="split_bar_train">Train</span>
-                  <span data-i18n="split_bar_val">Validation</span>
-                  <span data-i18n="split_bar_test">Test</span>
-                </div>
+          <div class="actions">
+            <button type="button" id="clearDataset" class="secondary" data-i18n="clear">Clear</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Preprocessing & Model Config -->
+      <section class="card section" id="trainSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="train_eyebrow">Step 2</p>
+            <h2 data-i18n="train_title">Preprocessing & Model</h2>
+          </div>
+        </div>
+
+        <form id="trainForm">
+          <div class="preproc-grid">
+            <p class="preproc-title" data-i18n="preproc_title">Preprocessing</p>
+
+            <label class="preproc-field">
+              <span data-i18n="task_type_label">Task type</span>
+              <select name="task_type">
+                <option value="auto" data-i18n="task_auto">Auto-detect</option>
+                <option value="classification" data-i18n="task_classify">Classification</option>
+                <option value="regression" data-i18n="task_regress">Regression</option>
+              </select>
+            </label>
+
+            <div class="preproc-field full">
+              <span data-i18n="val_strategy_label">Validation strategy</span>
+              <div class="radio-group horizontal" id="valStrategyGroup">
+                <label class="radio-label">
+                  <input type="radio" name="val_strategy" value="simple" checked>
+                  <span data-i18n="val_strategy_simple">Simple split</span>
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="val_strategy" value="kfold">
+                  <span data-i18n="val_strategy_kfold">K-fold cross-validation</span>
+                </label>
+              </div>
+              <div id="randomSeedField" class="img-seed-row">
+                <label class="checkbox-inline" style="font-size:12px">
+                  <input type="checkbox" id="csvUseShuffle" checked>
+                  <span data-i18n="shuffle_label">Shuffle</span>
+                  <input type="number" name="random_state" min="0" max="999999" step="1" value="42" style="width:70px">
+                </label>
               </div>
             </div>
 
-          <div id="kfoldConfig" class="full" style="display:none">
+            <div id="splitConfig" class="full">
+              <div class="preproc-field full split-bar-section" id="splitBarSection">
+                  <div class="dual-slider" id="dualSlider">
+                    <div class="dual-slider-fills" id="sliderFills">
+                      <div class="dual-fill train" id="fillTrain">70%</div>
+                      <div class="dual-fill val" id="fillVal">15%</div>
+                      <div class="dual-fill test" id="fillTest">15%</div>
+                    </div>
+                    <div class="dual-thumb" id="thumbTrain" style="left:70%"><div class="dual-knob"></div></div>
+                    <div class="dual-thumb" id="thumbTest" style="left:85%"><div class="dual-knob"></div></div>
+                  </div>
+                  <div class="split-bar-labels">
+                    <span data-i18n="split_bar_train">Train</span>
+                    <span data-i18n="split_bar_val">Validation</span>
+                    <span data-i18n="split_bar_test">Test</span>
+                  </div>
+                </div>
+              </div>
+
+            <div id="kfoldConfig" class="full" style="display:none">
+              <label class="preproc-field">
+                <span data-i18n="k_folds_label">Number of folds</span>
+                <input type="number" name="k_folds" min="2" max="20" step="1" value="5">
+              </label>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <label class="field full">
+              <span data-i18n="algorithm_label">Algorithm</span>
+              <div class="tooltip-wrap">
+                <select id="algorithmSelect" name="algorithm"></select>
+                <span class="tooltip-icon" id="algoTooltipIcon">?</span>
+                <span class="tooltip-text" id="algoTooltipText"></span>
+              </div>
+            </label>
+
+            <div id="hyperParams" class="params-group full"></div>
+
+            <div class="actions full">
+              <button type="submit" id="trainBtn" class="primary" data-i18n="train_btn">Train</button>
+              <button type="button" id="csvCancelBtn" class="secondary" style="display:none" data-i18n="cancel_train">Cancel</button>
+              <button type="button" id="clearOutputBtn" class="secondary" data-i18n="clear_output">Clear output</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- Output -->
+      <section class="card section" id="outputSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="output_eyebrow">Output</p>
+            <h2 data-i18n="output_title">Training log</h2>
+          </div>
+        </div>
+        <pre id="outputLog" class="output-log"></pre>
+      </section>
+
+      <!-- Chart -->
+      <section class="card section" id="chartSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="chart_eyebrow">Visualization</p>
+            <h2 data-i18n="chart_title">Predictions</h2>
+          </div>
+        </div>
+        <div class="chart-wrap" id="chartWrap">
+          <svg id="chartSvg" width="100%" height="300" style="display:block;margin:0 auto"></svg>
+        </div>
+        <div id="predTableWrap" style="margin-top:1rem;max-height:300px;overflow-y:auto">
+          <table id="predTable" class="pred-table">
+            <thead><tr><th>#</th><th data-i18n="chart_actual">Actual</th><th data-i18n="chart_predicted">Predicted</th></tr></thead>
+            <tbody id="predTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Results -->
+      <section class="card section" id="resultsSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="results_eyebrow">Results</p>
+            <h2 data-i18n="results_title">Metrics</h2>
+          </div>
+        </div>
+
+        <div id="metricsDisplay" class="metrics-grid"></div>
+
+        <div class="actions">
+          <a id="downloadBtn" class="button primary btn" aria-disabled="true" data-i18n="download_model">Download model</a>
+          <button type="button" id="saveConfirmBtn" class="primary btn" disabled data-i18n="save_to_server">Save to server</button>
+        </div>
+        <p id="saveStatus" class="save-status"></p>
+      </section>
+
+      <!-- Server Models -->
+      <section class="card section" id="modelsSection">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="models_eyebrow">Server</p>
+            <h2 data-i18n="models_title">Saved models</h2>
+          </div>
+        </div>
+
+        <div class="field">
+          <input type="text" id="modelFilter" data-i18n="model_filter_placeholder" placeholder="Filter models\u2026">
+        </div>
+        <ul id="modelList" class="model-list"></ul>
+      </section>
+    </div>
+
+    <!-- ═══════════ IMAGE MODE ═══════════ -->
+    <div id="imageMode" class="mode-content">
+
+      <!-- Step 1: Upload Images -->
+      <section class="card section" id="imgUploadSection">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="img_step1">Step 1</p>
+            <h2 data-i18n="img_upload_title">Upload Images</h2>
+          </div>
+          <span class="pill" id="imgUploadStatus" data-i18n="img_no_images">no images</span>
+        </div>
+
+        <div class="upload-zone" id="imgUploadZone">
+          <input type="file" id="imgFileInput" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+          <p data-i18n="img_upload_hint">Click or drag image files here (PNG, JPG, WEBP)</p>
+        </div>
+
+        <!-- Image list thumbnails -->
+        <div id="imgList" class="img-list" style="display:none">
+          <div class="img-list-header">
+            <span data-i18n="img_list_title">Images</span>
+            <button type="button" id="clearAllImagesBtn" class="secondary small-btn" data-i18n="clear">Clear</button>
+          </div>
+          <div id="imgThumbnails" class="img-thumbnails"></div>
+        </div>
+      </section>
+
+      <!-- Step 2: Annotate -->
+      <section class="card section" id="imgAnnotateSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="img_step2">Step 2</p>
+            <h2 data-i18n="img_annotate_title">Annotate Objects</h2>
+          </div>
+          <div class="img-nav">
+            <button type="button" id="prevImgBtn" class="secondary small-btn" data-i18n="img_prev">◀ Prev</button>
+            <span id="imgCounter" class="img-counter"></span>
+            <button type="button" id="nextImgBtn" class="secondary small-btn" data-i18n="img_next">Next ▶</button>
+          </div>
+        </div>
+
+        <div class="annotation-area">
+          <div class="canvas-container">
+            <canvas id="annotationCanvas"></canvas>
+            <div id="canvasPlaceholder" class="canvas-placeholder">
+              <p data-i18n="img_canvas_hint">Draw rectangles around objects. Click and drag to mark an area.</p>
+            </div>
+          </div>
+          <div class="annotation-tools">
+            <div class="annotation-info">
+              <span data-i18n="img_boxes">Boxes:</span>
+              <strong id="boxCount">0</strong>
+            </div>
+            <button type="button" id="undoBoxBtn" class="secondary small-btn" data-i18n="img_undo">Undo last</button>
+            <button type="button" id="clearBoxesBtn" class="secondary small-btn" data-i18n="img_clear_boxes">Clear all</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 3: Train -->
+      <section class="card section" id="imgTrainSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="img_step3">Step 3</p>
+            <h2 data-i18n="img_train_title">Train Detector</h2>
+          </div>
+        </div>
+
+        <div class="preproc-grid">
+          <p class="preproc-title" data-i18n="preproc_title">Preprocessing</p>
+
+          <div class="preproc-field full">
+            <span data-i18n="val_strategy_label">Validation strategy</span>
+            <div class="radio-group horizontal" id="imgValStrategyGroup">
+              <label class="radio-label">
+                <input type="radio" name="img_val_strategy" value="simple" checked>
+                <span data-i18n="val_strategy_simple">Simple split</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="img_val_strategy" value="kfold">
+                <span data-i18n="val_strategy_kfold">K-fold cross-validation</span>
+              </label>
+            </div>
+            <div id="imgParamsRow" class="img-seed-row">
+              <label class="checkbox-inline" style="font-size:12px">
+                <input type="checkbox" id="imgUsePatchSize" checked>
+                <span>Patch size</span>
+                <input type="number" id="imgPatchSize" min="8" max="512" step="8" value="32" style="width:70px">
+              </label>
+              <label class="checkbox-inline" style="font-size:12px">
+                <input type="checkbox" id="imgUseNeg" checked>
+                <span data-i18n="img_neg_per_ann">Neg./ann.</span>
+                <input type="number" id="imgNegPerAnn" value="10" min="0" max="50" style="width:80px">
+              </label>
+              <label class="checkbox-inline" style="font-size:12px">
+                <input type="checkbox" id="imgUseStride">
+                <span data-i18n="overlap_stride">Overlap stride</span>
+                <input type="number" id="imgStride" min="2" step="1" value="16" style="width:70px" disabled>
+              </label>
+              <label class="checkbox-inline" style="font-size:12px">
+                <input type="checkbox" id="imgUseShuffle" checked>
+                <span data-i18n="shuffle_label">Shuffle</span>
+                <input type="number" id="imgRandomSeed" min="0" max="999999" step="1" value="42" style="width:70px">
+              </label>
+            </div>
+          </div>
+
+          <div id="imgSplitConfig" class="full">
+            <div class="preproc-field full split-bar-section" id="imgSplitBarSection">
+              <div class="dual-slider" id="imgDualSlider">
+                <div class="dual-slider-fills" id="imgSliderFills">
+                  <div class="dual-fill train" id="imgFillTrain">70%</div>
+                  <div class="dual-fill val" id="imgFillVal">15%</div>
+                  <div class="dual-fill test" id="imgFillTest">15%</div>
+                </div>
+                <div class="dual-thumb" id="imgThumbTrain" style="left:70%"><div class="dual-knob"></div></div>
+                <div class="dual-thumb" id="imgThumbTest" style="left:85%"><div class="dual-knob"></div></div>
+              </div>
+              <div class="split-bar-labels">
+                <span data-i18n="split_bar_train">Train</span>
+                <span data-i18n="split_bar_val">Validation</span>
+                <span data-i18n="split_bar_test">Test</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="imgKfoldConfig" class="full" style="display:none">
             <label class="preproc-field">
               <span data-i18n="k_folds_label">Number of folds</span>
-              <input type="number" name="k_folds" min="2" max="20" step="1" value="5">
+              <input type="number" id="imgKFolds" min="2" max="20" step="1" value="5">
             </label>
           </div>
         </div>
@@ -155,84 +388,118 @@
           <label class="field full">
             <span data-i18n="algorithm_label">Algorithm</span>
             <div class="tooltip-wrap">
-              <select id="algorithmSelect" name="algorithm"></select>
-              <span class="tooltip-icon" id="algoTooltipIcon">?</span>
-              <span class="tooltip-text" id="algoTooltipText"></span>
+              <select id="imgAlgorithmSelect"></select>
+              <span class="tooltip-icon" id="imgAlgoTooltipIcon">?</span>
+              <span class="tooltip-text" id="imgAlgoTooltipText"></span>
             </div>
           </label>
 
-          <div id="hyperParams" class="params-group full"></div>
+          <div id="imgHyperParams" class="params-group full"></div>
 
           <div class="actions full">
-            <button type="submit" id="trainBtn" class="primary" data-i18n="train_btn">Train</button>
-            <button type="button" id="clearOutputBtn" class="secondary" data-i18n="clear_output">Clear output</button>
+            <button type="button" id="imgTrainBtn" class="primary" data-i18n="img_train_btn">Train Detector</button>
+            <button type="button" id="imgCancelBtn" class="secondary" style="display:none" data-i18n="cancel_train">Cancel</button>
+            <button type="button" id="imgClearOutputBtn" class="secondary" data-i18n="clear_output">Clear output</button>
           </div>
         </div>
-      </form>
-    </section>
+      </section>
 
-    <!-- Output -->
-    <section class="card section" id="outputSection">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow" data-i18n="output_eyebrow">Output</p>
-          <h2 data-i18n="output_title">Training log</h2>
+      <!-- Image Training Output -->
+      <section class="card section" id="imgOutputSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="output_eyebrow">Output</p>
+            <h2 data-i18n="output_title">Training log</h2>
+          </div>
         </div>
-      </div>
-      <pre id="outputLog" class="output-log"></pre>
-    </section>
+        <pre id="imgOutputLog" class="output-log"></pre>
+      </section>
 
-    <!-- Chart -->
-    <section class="card section" id="chartSection" style="display:none">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow" data-i18n="chart_eyebrow">Visualization</p>
-          <h2 data-i18n="chart_title">Predictions</h2>
+      <!-- Image Predictions -->
+      <section class="card section" id="imgPredSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="chart_eyebrow">Visualization</p>
+            <h2 data-i18n="img_pred_title">Patch Predictions</h2>
+          </div>
         </div>
-      </div>
-      <div class="chart-wrap" id="chartWrap">
-        <svg id="chartSvg" width="100%" height="300" style="display:block;margin:0 auto"></svg>
-      </div>
-      <div id="predTableWrap" style="margin-top:1rem;max-height:300px;overflow-y:auto">
-        <table id="predTable" class="pred-table">
-          <thead><tr><th>#</th><th data-i18n="chart_actual">Actual</th><th data-i18n="chart_predicted">Predicted</th></tr></thead>
-          <tbody id="predTbody"></tbody>
-        </table>
-      </div>
-    </section>
+        <div id="imgPredGrid" class="img-pred-grid"></div>
+      </section>
 
-    <!-- Results -->
-    <section class="card section" id="resultsSection">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow" data-i18n="results_eyebrow">Results</p>
-          <h2 data-i18n="results_title">Metrics</h2>
+      <!-- Detection Tuning -->
+      <section class="card section" id="imgTuningSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="tuning_eyebrow">Tuning</p>
+            <h2 data-i18n="tuning_title">Detection Tuning</h2>
+          </div>
         </div>
-      </div>
-
-      <div id="metricsDisplay" class="metrics-grid"></div>
-
-      <div class="actions">
-        <a id="downloadBtn" class="button primary btn" aria-disabled="true" data-i18n="download_model">Download model</a>
-        <button type="button" id="saveConfirmBtn" class="primary btn" disabled data-i18n="save_to_server">Save to server</button>
-      </div>
-      <p id="saveStatus" class="save-status"></p>
-    </section>
-
-    <!-- Server Models -->
-    <section class="card section" id="modelsSection">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow" data-i18n="models_eyebrow">Server</p>
-          <h2 data-i18n="models_title">Saved models</h2>
+        <div class="tuning-sliders">
+          <label class="tuning-slider-wrap">
+            <span>Confidence: <strong id="tuningConfValue">0.30</strong></span>
+            <input type="range" id="tuningConfSlider" min="0" max="1" step="0.01" value="0.5">
+          </label>
+          <label class="tuning-slider-wrap">
+            <span>NMS: <strong id="tuningNmsValue">0.20</strong></span>
+            <input type="range" id="tuningNmsSlider" min="0" max="1" step="0.01" value="0">
+          </label>
         </div>
-      </div>
+      </section>
 
-      <div class="field">
-        <input type="text" id="modelFilter" data-i18n="model_filter_placeholder" placeholder="Filter models…">
-      </div>
-      <ul id="modelList" class="model-list"></ul>
-    </section>
+      <!-- Image Test Gallery -->
+      <section class="card section" id="imgTestGallerySection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="test-gallery-eyebrow">Test Images</p>
+            <h2 data-i18n="test-gallery-title">Test Image Predictions</h2>
+          </div>
+          <div class="img-nav">
+            <button type="button" id="prevTestImgBtn" class="secondary small-btn" data-i18n="img_prev">◀ Prev</button>
+            <span id="testImgCounter" class="img-counter"></span>
+            <button type="button" id="nextTestImgBtn" class="secondary small-btn" data-i18n="img_next">Next ▶</button>
+          </div>
+        </div>
+        <div class="canvas-container">
+          <canvas id="testGalleryCanvas"></canvas>
+          <div id="testCanvasPlaceholder" class="canvas-placeholder">
+            <p data-i18n="test-canvas-hint">Test images with prediction overlays</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Image Training Results -->
+      <section class="card section" id="imgResultsSection" style="display:none">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="results_eyebrow">Results</p>
+            <h2 data-i18n="results_title">Metrics</h2>
+          </div>
+        </div>
+
+        <div id="imgMetricsDisplay" class="metrics-grid"></div>
+
+        <div class="actions">
+          <a id="imgDownloadBtn" class="button primary btn" aria-disabled="true" data-i18n="download_model">Download model</a>
+          <button type="button" id="imgSaveBtn" class="primary btn" disabled data-i18n="save_to_server">Save to server</button>
+        </div>
+        <p id="imgSaveStatus" class="save-status"></p>
+      </section>
+
+
+      <!-- Image Server Models -->
+      <section class="card section" id="imgModelsSection">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" data-i18n="models_eyebrow">Server</p>
+            <h2 data-i18n="models_title">Saved models</h2>
+          </div>
+        </div>
+        <div class="field">
+          <input type="text" id="imgModelFilter" data-i18n="model_filter_placeholder" placeholder="Filter models\u2026">
+        </div>
+        <ul id="imgModelList" class="model-list"></ul>
+      </section>
+    </div>
   </main>
 </body>
 </html>

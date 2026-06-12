@@ -17,10 +17,12 @@ I18N_DIR = STATIC_DIR / "i18n"
 
 CONFIG_DIR = STATIC_DIR / "config"
 APP_CONFIG_PATH = CONFIG_DIR / "train.json"
-FORM_CONFIG_PATH = CONFIG_DIR / "train_form.json"
 
 MODELS_DIR = DB_DIR / "models"
+MODELS_CSV_DIR = MODELS_DIR / "csv"
+MODELS_IMAGE_DIR = MODELS_DIR / "image"
 TEMP_DIR = DB_DIR / "temp"
+IMGTRAIN_DIR = DB_DIR / "temp_imgtrain"
 MODEL_TEMP_DIR = DB_DIR / "temp_models"
 
 
