@@ -117,7 +117,7 @@
   "test_tab_server": "Dal server",
   "test_tab_upload": "Carica file",
   "test_select_hint": "-- Seleziona un modello --",
-  "test_model_filter": "Filtra modelli\u2026",
+  "test_model_filter": "Filtra modelli…",
   "test_select_model": "Seleziona",
   "test_refresh": "Aggiorna",
   "test_upload_hint": "Clicca o trascina un file .model qui",
@@ -176,8 +176,7 @@
   "img_algo_label_logistic": "Regressione Logistica",
   "img_algo_desc_logistic": "Classificatore lineare semplice e veloce. Buon baseline.",
   "img_algo_label_neural_network": "Rete Neurale (MLP)",
-  "img_algo_desc_neural_network": "Percettrone multistrato. Pu\u00f2 catturare pattern complessi con dati sufficienti.",
-
+  "img_algo_desc_neural_network": "Percettrone multistrato. Può catturare pattern complessi con dati sufficienti.",
   "img_pred_title": "Previsioni delle patch",
   "img_pred_positive": "Positivo",
   "img_pred_negative": "Negativo",
@@ -190,16 +189,14 @@
   "img_test_results_title": "Risultati rilevamento",
   "img_test_detection_done": "Rilevamento completato. Scarica ZIP per vedere i risultati.",
   "img_download_zip": "Scarica ZIP",
-  "img_test_model_filter": "Filtra modelli immagini\u2026",
+  "img_test_model_filter": "Filtra modelli immagini…",
   "img_no_models": "-- Nessun modello immagini --",
-
   "validation_errors": "Errori di validazione",
   "validation_fix_highlighted": "Correggi i campi evidenziati.",
-  "field_empty": "Questo campo non pu\u00f2 essere vuoto.",
+  "field_empty": "Questo campo non può essere vuoto.",
   "field_not_number": "Questo campo deve essere un numero.",
   "field_min": "Il valore deve essere almeno {0}.",
   "field_max": "Il valore deve essere al massimo {0}.",
-
   "test-canvas-hint": "Immagini di test con sovrapposizioni di previsioni",
   "test-gallery-eyebrow": "Galleria",
   "test-gallery-title": "Risultati del test",
@@ -218,5 +215,15 @@
     "cyberpunk": "Cyberpunk",
     "monochrome": "Monocromatico",
     "steampunk": "Steampunk"
-  }
+  },
+  "cols_2": "{n} columns",
+  "param_strategy_constant": "Constant",
+  "param_strategy_mean": "Mean",
+  "param_strategy_median": "Median",
+  "param_strategy_most_frequent": "Most frequent",
+  "param_strategy_prior": "Prior",
+  "param_strategy_quantile": "Quantile",
+  "param_strategy_stratified": "Stratified",
+  "param_strategy_uniform": "Uniform",
+  "rows_2": "{n} rows"
 }

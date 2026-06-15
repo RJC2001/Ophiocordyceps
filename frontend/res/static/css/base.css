@@ -512,7 +512,8 @@ a.button-secondary:hover {
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--surface-2);
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border);
@@ -524,7 +525,7 @@ a.button-secondary:hover {
 @supports (scrollbar-color: auto) {
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
+    scrollbar-color: var(--border) var(--surface-2);
   }
 }
 

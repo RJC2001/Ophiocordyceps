@@ -1950,7 +1950,7 @@ function renderTestGalleryImage(index) {
     testGalleryCtx.fillStyle = "#666";
     testGalleryCtx.font = "14px sans-serif";
     testGalleryCtx.textAlign = "center";
-    testGalleryCtx.fillText(t("test_canvas_hint") || "Image not available", cw / 2, ch / 2);
+    testGalleryCtx.fillText(t("test-canvas-hint") || "Image not available", cw / 2, ch / 2);
   };
   img.src = imgData.dataUrl;
 }
