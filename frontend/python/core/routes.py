@@ -842,9 +842,9 @@ class TrainHandler(BaseHTTPRequestHandler):
                 images_list = list(payload.get("images", []))
                 if not images_list:
                     images_list = list(image_test_uploads.get(sid, []))
-                confidence = float(payload.get("confidence", 0.3))
-                merge_threshold = float(payload.get("merge_threshold", 0.2))
-                merge_threshold = max(0.05, min(0.95, merge_threshold))
+                confidence = float(payload.get("confidence", 0.5))
+                merge_threshold = float(payload.get("merge_threshold", 0.0))
+                merge_threshold = max(0.0, min(0.95, merge_threshold))
 
                 if not images_list:
                     raise ValueError("No images provided")

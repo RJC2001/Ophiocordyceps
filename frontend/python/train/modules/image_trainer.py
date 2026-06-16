@@ -23,7 +23,23 @@ from core.config import MODELS_IMAGE_DIR, IMGTRAIN_DIR
 
 _image_training_states: dict[str, dict[str, Any]] = {}
 
+# Feature-vector resolution. The detection window can be large (e.g. a 280px
+# circle), but every window is resized to this fixed size before being
+# flattened into a feature vector, so the vector length — and therefore memory
+# and CPU — stays bounded no matter how big the annotated objects are. Without
+# this, a large annotation produced window*window*3 = hundreds of thousands of
+# features per sample and could exhaust memory and freeze the machine.
+FEATURE_SIZE = 64
+
 IMAGE_ALGORITHMS: dict[str, Any] = {
+    "random_forest": {
+        "label": "Random Forest",
+        "description": "Ensemble of decision trees. Handles non-linear relationships, resistant to overfitting. Best default for small datasets (~20 images) — trains fast and generalizes well without tuning.",
+        "params": {
+            "n_estimators": {"type": "int", "default": 200, "min": 1, "max": 2000},
+            "max_depth": {"type": "int", "default": 0, "min": 0, "max": 200},
+        },
+    },
     "cnn": {
         "label": "CNN (Convolutional Neural Network)",
         "description": "Convolutional Neural Network for image recognition. Uses a multi-layer perceptron with deep architecture optimized for visual pattern recognition.",
@@ -41,14 +57,6 @@ IMAGE_ALGORITHMS: dict[str, Any] = {
             },
             "epochs": {"type": "int", "default": 1000, "min": 1, "max": 10000},
             "batch_size": {"type": "int", "default": 0, "min": 0, "max": 1024},
-        },
-    },
-    "random_forest": {
-        "label": "Random Forest",
-        "description": "Ensemble of decision trees. Handles non-linear relationships, resistant to overfitting. Good default choice for classification and regression.",
-        "params": {
-            "n_estimators": {"type": "int", "default": 100, "min": 1, "max": 2000},
-            "max_depth": {"type": "int", "default": 0, "min": 0, "max": 200},
         },
     },
     "logistic": {
@@ -360,42 +368,30 @@ def _nms_merge(predictions: list[dict[str, Any]], iou_threshold: float = 0.3) ->
             if used[i]:
                 continue
             used[i] = True
-            gx1 = boxes[i]["x"]
-            gy1 = boxes[i]["y"]
-            gx2 = boxes[i]["x"] + boxes[i]["w"]
-            gy2 = boxes[i]["y"] + boxes[i]["h"]
-            best_conf = boxes[i].get("confidence", 0)
-            has_sliding = boxes[i].get("sliding_window", False)
-            for j in range(len(boxes)):
+            best = boxes[i]
+            for j in range(i + 1, len(boxes)):
                 if used[j]:
                     continue
-                bx1, by1 = boxes[j]["x"], boxes[j]["y"]
-                bx2 = boxes[j]["x"] + boxes[j]["w"]
-                by2 = boxes[j]["y"] + boxes[j]["h"]
-                if _iou(gx1, gy1, gx2 - gx1, gy2 - gy1, bx1, by1, bx2 - bx1, by2 - by1) > iou_threshold:
+                bj = boxes[j]
+                iou = _iou(best["x"], best["y"], best["w"], best["h"],
+                           bj["x"], bj["y"], bj["w"], bj["h"])
+                if iou > iou_threshold:
                     used[j] = True
-                    gx1 = min(gx1, bx1)
-                    gy1 = min(gy1, by1)
-                    gx2 = max(gx2, bx2)
-                    gy2 = max(gy2, by2)
-                    best_conf = max(best_conf, boxes[j].get("confidence", 0))
-                    if boxes[j].get("sliding_window"):
-                        has_sliding = True
             merged.append({
                 "actual": 1,
                 "predicted": 1,
-                "sliding_window": has_sliding,
+                "sliding_window": best.get("sliding_window", False),
                 "image_id": img_id,
-                "x": gx1,
-                "y": gy1,
-                "w": gx2 - gx1,
-                "h": gy2 - gy1,
-                "confidence": best_conf,
+                "x": best["x"],
+                "y": best["y"],
+                "w": best["w"],
+                "h": best["h"],
+                "confidence": best.get("confidence", 0),
             })
     return merged
 
 
-def _sliding_window(model: Any, img_info: dict, pw: int, ph: int, img_id: str, stride: int = 0) -> list[dict[str, Any]]:
+def _sliding_window(model: Any, img_info: dict, win_w: int, win_h: int, feat_w: int, feat_h: int, img_id: str, stride: int = 0) -> list[dict[str, Any]]:
     img_pil = Image.open(img_info["path"]).convert("RGB")
     img_arr = np.array(img_pil, dtype=np.float32) / 255.0
     img_pil.close()
@@ -404,15 +400,20 @@ def _sliding_window(model: Any, img_info: dict, pw: int, ph: int, img_id: str, s
         stride_x = max(stride, 2)
         stride_y = max(stride, 2)
     else:
-        stride_x = pw
-        stride_y = ph
+        stride_x = max(win_w // 2, 4)
+        stride_y = max(win_h // 2, 4)
     has_proba = hasattr(model, "predict_proba")
+    resize_needed = (feat_w, feat_h) != (win_w, win_h)
 
     patches: list[np.ndarray] = []
     coords: list[tuple[int, int]] = []
-    for y in range(0, img_h - ph + 1, stride_y):
-        for x in range(0, img_w - pw + 1, stride_x):
-            patches.append(img_arr[y:y+ph, x:x+pw].flatten())
+    for y in range(0, img_h - win_h + 1, stride_y):
+        for x in range(0, img_w - win_w + 1, stride_x):
+            crop = img_arr[y:y+win_h, x:x+win_w]
+            if resize_needed:
+                cimg = Image.fromarray((crop * 255).astype(np.uint8)).resize((feat_w, feat_h), Image.Resampling.LANCZOS)
+                crop = np.asarray(cimg, dtype=np.float32) / 255.0
+            patches.append(crop.flatten())
             coords.append((x, y))
 
     if not patches:
@@ -436,7 +437,7 @@ def _sliding_window(model: Any, img_info: dict, pw: int, ph: int, img_id: str, s
             "sliding_window": True,
             "image_id": img_id,
             "x": x, "y": y,
-            "w": pw, "h": ph,
+            "w": win_w, "h": win_h,
             "confidence": float(confidence),
         })
     return detections
@@ -520,9 +521,16 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                 pw = ph = 32
             pw = max(8, min(512, pw))
             ph = max(8, min(512, ph))
-            log_fn(f"Auto patch size: {pw}x{ph} (median of annotations)")
+            log_fn(f"Auto detection window: {pw}x{ph} (median of annotations)")
         else:
             pw = ph = patch_size
+
+        # Feature resolution is capped independently of the detection window so
+        # memory stays bounded even for large annotations (e.g. big circles).
+        fw = max(8, min(pw, FEATURE_SIZE))
+        fh = max(8, min(ph, FEATURE_SIZE))
+        if (fw, fh) != (pw, ph):
+            log_fn(f"Feature resolution: {fw}x{fh} (windows resized down from {pw}x{ph})")
 
         for img_id, img_info in images.items():
             img_annotations = annotations.get(img_id, [])
@@ -534,13 +542,13 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
             img = Image.open(img_info["path"])
 
             for ann in img_annotations:
-                patch = _extract_patch(img, ann["x"], ann["y"], ann["width"], ann["height"], pw, ph)
+                patch = _extract_patch(img, ann["x"], ann["y"], ann["width"], ann["height"], fw, fh)
                 if patch is not None:
                     X_list.append(patch)
                     y_list.append(1)
                     sample_meta.append({"img_id": img_id, "x": ann["x"], "y": ann["y"], "w": ann["width"], "h": ann["height"]})
                     for _ in range(3):
-                        aug = _augment_patch(patch, pw, ph)
+                        aug = _augment_patch(patch, fw, fh)
                         X_list.append(aug)
                         y_list.append(1)
                         sample_meta.append({"img_id": img_id, "x": ann["x"], "y": ann["y"], "w": ann["width"], "h": ann["height"]})
@@ -563,7 +571,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
 
                 if not overlaps:
                     patch = img.crop((nx, ny, nx + pw, ny + ph))
-                    patch = patch.resize((pw, ph), Image.Resampling.LANCZOS)
+                    patch = patch.resize((fw, fh), Image.Resampling.LANCZOS)
                     patch = patch.convert("RGB")
                     arr = np.array(patch, dtype=np.float32) / 255.0
                     X_list.append(arr.flatten())
@@ -584,7 +592,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
             log_fn("Warning: No negative samples generated. Training with only positive samples. The model may not generalize well.")
 
         log_fn(f"Total: {pos_count} positive, {neg_count_total} negative samples")
-        log_fn(f"Patch dimensions: {pw}x{ph} px, feature vector size: {pw * ph * 3}")
+        log_fn(f"Detection window: {pw}x{ph} px, feature vector size: {fw * fh * 3} ({fw}x{fh}x3)")
 
         X = np.array(X_list)
         y = np.array(y_list)
@@ -613,7 +621,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                     meta = sample_meta[vi]
                     test_img_ids[meta["img_id"]] = None
                     predictions_list.append({
-                        "image": _feature_to_image(X_fold_val[i], pw, ph),
+                        "image": _feature_to_image(X_fold_val[i], fw, fh),
                         "actual": int(y_fold_val[i]),
                         "predicted": int(y_fold_pred[i]),
                         "image_id": meta["img_id"],
@@ -639,7 +647,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
             for img_id, img_info in state["images"].items():
                 if cancelled():
                     return
-                sliding_list.extend(_sliding_window(model, img_info, pw, ph, img_id, stride))
+                sliding_list.extend(_sliding_window(model, img_info, pw, ph, fw, fh, img_id, stride))
                 test_img_ids[img_id] = None
             if sliding_list:
                 raw_predictions = list(sliding_list)
@@ -750,7 +758,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                     if not img_info:
                         continue
                     log_fn(f"  Scanning {img_info['filename']} ({img_idx+1}/{len(test_image_ids_param)})...")
-                    dets = _sliding_window(model, img_info, pw, ph, img_id, stride)
+                    dets = _sliding_window(model, img_info, pw, ph, fw, fh, img_id, stride)
                     sliding_list.extend(dets)
                     test_img_ids[img_id] = None
                     log_fn(f"    {img_info['filename']}: {len(dets)} raw detections")
@@ -769,7 +777,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                     meta = sample_meta[idx]
                     test_img_ids[meta["img_id"]] = None
                     predictions_list.append({
-                        "image": _feature_to_image(X_test[i], pw, ph),
+                        "image": _feature_to_image(X_test[i], fw, fh),
                         "actual": int(y_test[i]),
                         "predicted": int(y_test_pred[i]),
                         "image_id": meta["img_id"],
@@ -810,6 +818,8 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                 "patch_size": pw,
                 "patch_width": pw,
                 "patch_height": ph,
+                "feature_width": fw,
+                "feature_height": fh,
                 "type": "image_detector",
                 "algorithm": algorithm,
                 "metrics": metrics,

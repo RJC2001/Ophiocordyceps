@@ -39,6 +39,14 @@ from modules.csv_handler import get_uploaded_csv
 training_states: dict[str, dict[str, Any]] = {}
 
 ALGORITHMS = {
+    "random_forest": {
+        "label": "Random Forest",
+        "description": "Ensemble of decision trees. Handles non-linear relationships, resistant to overfitting. Best default choice for classification and regression — works well without tuning.",
+        "params": {
+            "n_estimators": {"type": "int", "default": 100, "min": 1, "max": 2000},
+            "max_depth": {"type": "int", "default": 0, "min": 0, "max": 200},
+        },
+    },
     "dummy": {
         "label": "Dummy",
         "description": "Always predicts a constant value based on a simple strategy. Use as a reference to evaluate other models.",
@@ -48,14 +56,6 @@ ALGORITHMS = {
                 "default": "most_frequent",
                 "options": ["most_frequent", "prior", "stratified", "uniform", "constant", "mean", "median", "quantile"],
             },
-        },
-    },
-    "random_forest": {
-        "label": "Random Forest",
-        "description": "Ensemble of decision trees. Handles non-linear relationships, resistant to overfitting. Good default choice for classification and regression.",
-        "params": {
-            "n_estimators": {"type": "int", "default": 100, "min": 1, "max": 2000},
-            "max_depth": {"type": "int", "default": 0, "min": 0, "max": 200},
         },
     },
     "logistic_regression": {

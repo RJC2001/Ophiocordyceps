@@ -193,7 +193,7 @@
   "img_test_model_filter": "Filter image models…",
   "img_no_models": "-- No image models --",
   "img_confidence_label": "Confidence threshold:",
-  "img_merge_label": "Merge overlap (NMS):",
+  "img_merge_label": "Region merge (0 = one box per object):",
   "themes": {
     "light": "Light",
     "dark": "Dark",

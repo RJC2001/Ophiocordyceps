@@ -204,7 +204,7 @@
   "img_test_model_filter": "Filtruj modele obraz\u00f3w\u2026",
   "img_no_models": "-- Brak modeli obraz\u00f3w --",
   "img_confidence_label": "Pr\u00f3g pewno\u015bci:",
-  "img_merge_label": "Pr\u00f3g \u0142\u0105czenia (NMS):",
+  "img_merge_label": "Scalanie obszar\u00f3w (0 = jeden box na obiekt):",
   "themes": {
     "light": "Jasny",
     "dark": "Ciemny",

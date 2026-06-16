@@ -29,20 +29,77 @@ def _iou(
     return 0
 
 
-def _nms(detections: list[dict], iou_threshold: float = 1) -> list[dict]:
+def _merge_overlapping(
+    detections: list[dict],
+    link_iou: float = 0.3,
+    min_support: int = 2,
+) -> list[dict]:
+    """Merge sliding-window detections into one box per object.
+
+    Sliding windows produce a grid of small overlapping patches covering an
+    object. Instead of suppressing them (classic NMS, which leaves many small
+    boxes), we group every set of mutually overlapping patches into a single
+    connected component and emit ONE bounding box = the union of the group.
+
+    - ``link_iou``: two boxes are linked only if they intersect *and* their IoU
+      is at least this value. ``0.0`` (default) merges any overlap → one box per
+      contiguous object; higher values split objects into more boxes.
+    - ``min_support``: drop groups backed by fewer than this many windows. This
+      removes isolated stray detections (lone small boxes) while real objects,
+      which are always covered by several overlapping windows across scales,
+      survive.
+    """
     if not detections:
         return []
-    sorted_dets = sorted(detections, key=lambda d: d.get("confidence", 0), reverse=True)
-    result: list[dict] = []
-    while sorted_dets:
-        best = sorted_dets.pop(0)
-        result.append(best)
-        sorted_dets = [
-            d for d in sorted_dets
-            if _iou(d["x"], d["y"], d["width"], d["height"],
-                    best["x"], best["y"], best["width"], best["height"]) < iou_threshold
-        ]
-    return result
+
+    n = len(detections)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+
+    for i in range(n):
+        a = detections[i]
+        ax2, ay2 = a["x"] + a["width"], a["y"] + a["height"]
+        for j in range(i + 1, n):
+            b = detections[j]
+            left = max(a["x"], b["x"])
+            top = max(a["y"], b["y"])
+            right = min(ax2, b["x"] + b["width"])
+            bottom = min(ay2, b["y"] + b["height"])
+            if left < right and top < bottom:
+                if _iou(a["x"], a["y"], a["width"], a["height"],
+                        b["x"], b["y"], b["width"], b["height"]) >= link_iou:
+                    union(i, j)
+
+    groups: dict[int, list[dict]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(detections[i])
+
+    merged: list[dict] = []
+    for boxes in groups.values():
+        if len(boxes) < min_support:
+            continue
+        x1 = min(b["x"] for b in boxes)
+        y1 = min(b["y"] for b in boxes)
+        x2 = max(b["x"] + b["width"] for b in boxes)
+        y2 = max(b["y"] + b["height"] for b in boxes)
+        merged.append({
+            "x": x1,
+            "y": y1,
+            "width": x2 - x1,
+            "height": y2 - y1,
+            "confidence": max(b.get("confidence", 0) for b in boxes),
+        })
+    return merged
 
 
 def load_detector(model_name: str = "", upload_token: str = "", session_id: str = "") -> tuple[object, dict]:
@@ -60,11 +117,14 @@ def load_detector(model_name: str = "", upload_token: str = "", session_id: str 
     data = joblib.load(model_path)
     if isinstance(data, dict) and "model" in data:
         meta = data.get("metadata", {})
-        # Normalize metadata to include pw/ph regardless of version
+        # Normalize metadata to include pw/ph and fw/fh regardless of version
         if "patch_width" not in meta:
             ps = meta.get("patch_size", 32)
             meta["patch_width"] = ps
             meta["patch_height"] = ps
+        if "feature_width" not in meta:
+            meta["feature_width"] = meta["patch_width"]
+            meta["feature_height"] = meta["patch_height"]
         return data["model"], meta
     return data, {"patch_width": 32, "patch_height": 32}
 
@@ -80,12 +140,16 @@ def predict_images(
     confidence_threshold: float = 0.5,
     nms_threshold: float = 0.0,
     scales: list[float] | None = None,
+    min_support: int = 2,
     cancelled_fn=_cancelled_default,
 ) -> tuple[bytes, list[dict]]:
     if scales is None:
         scales = [1.0, 1.5, 0.75]
     pw = metadata.get("patch_width") or metadata.get("patch_size", 32)
     ph = metadata.get("patch_height") or metadata.get("patch_size", 32)
+    fw = metadata.get("feature_width", pw)
+    fh = metadata.get("feature_height", ph)
+    resize_feat = (fw, fh) != (pw, ph)
     stride_x = max(pw // 2, 4)
     stride_y = max(ph // 2, 4)
 
@@ -116,7 +180,11 @@ def predict_images(
                 patch_coords: list[tuple[int, int]] = []
                 for y in range(0, sh - ph + 1, stride_y):
                     for x in range(0, sw - pw + 1, stride_x):
-                        patch_features.append(resized_arr[y:y+ph, x:x+pw].flatten())
+                        crop = resized_arr[y:y+ph, x:x+pw]
+                        if resize_feat:
+                            cimg = Image.fromarray((crop * 255).astype(np.uint8)).resize((fw, fh), Image.Resampling.LANCZOS)
+                            crop = np.asarray(cimg, dtype=np.float32) / 255.0
+                        patch_features.append(crop.flatten())
                         patch_coords.append((x, y))
 
                 if not patch_features:
@@ -143,7 +211,9 @@ def predict_images(
                 except Exception:
                     pass
 
-            filtered = _nms(all_detections, iou_threshold=nms_threshold)
+            filtered = _merge_overlapping(
+                all_detections, link_iou=nms_threshold, min_support=min_support
+            )
             filtered.sort(key=lambda d: d.get("confidence", 0), reverse=True)
 
             draw = ImageDraw.Draw(img)
