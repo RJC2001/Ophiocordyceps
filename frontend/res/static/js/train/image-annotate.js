@@ -328,6 +328,63 @@ function updateImageList() {
     } else {
       thumb.addEventListener("click", () => selectImage(i));
     }
+    thumb.draggable = true;
+    thumb.dataset.index = i;
+
+    thumb.addEventListener("dragstart", (e) => {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", i);
+      thumb.classList.add("dragging");
+    });
+
+    thumb.addEventListener("dragend", () => {
+      document.querySelectorAll(".img-thumb.dragging, .img-thumb.drag-over").forEach(el => {
+        el.classList.remove("dragging", "drag-over");
+      });
+    });
+
+    thumb.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      if (!thumb.classList.contains("dragging")) {
+        thumb.classList.add("drag-over");
+      }
+    });
+
+    thumb.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    });
+
+    thumb.addEventListener("dragleave", () => {
+      thumb.classList.remove("drag-over");
+    });
+
+    thumb.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      thumb.classList.remove("drag-over");
+
+      const fromIdx = parseInt(e.dataTransfer.getData("text/plain"));
+      const toIdx = parseInt(thumb.dataset.index);
+      if (isNaN(fromIdx) || isNaN(toIdx) || fromIdx === toIdx) return;
+
+      const [moved] = imgState.images.splice(fromIdx, 1);
+      imgState.images.splice(toIdx, 0, moved);
+
+      if (imgState.currentIndex === fromIdx) {
+        imgState.currentIndex = toIdx;
+      } else if (fromIdx < toIdx) {
+        if (imgState.currentIndex > fromIdx && imgState.currentIndex <= toIdx) {
+          imgState.currentIndex--;
+        }
+      } else {
+        if (imgState.currentIndex >= toIdx && imgState.currentIndex < fromIdx) {
+          imgState.currentIndex++;
+        }
+      }
+
+      updateImageList();
+    });
     imgThumbnails.appendChild(thumb);
   });
 }
