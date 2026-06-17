@@ -158,6 +158,7 @@
   "img_undo": "Annuler",
   "img_clear_boxes": "Tout effacer",
   "img_clear_boxes_confirm": "Effacer toutes les boîtes sur cette image ?",
+  "img_delete_confirm": "Supprimer cette image ?",
   "img_clear_all_confirm": "Effacer toutes les images ?",
   "img_prev": "Précédent",
   "img_next": "Suivant",

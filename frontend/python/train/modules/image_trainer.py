@@ -55,7 +55,7 @@ IMAGE_ALGORITHMS: dict[str, Any] = {
                 "min": 0.00001,
                 "max": 1.0,
             },
-            "epochs": {"type": "int", "default": 1000, "min": 1, "max": 10000},
+            "epochs": {"type": "int", "default": 200, "min": 1, "max": 5000},
             "batch_size": {"type": "int", "default": 0, "min": 0, "max": 1024},
         },
     },
@@ -93,7 +93,7 @@ IMAGE_ALGORITHMS: dict[str, Any] = {
                 "min": 0.00001,
                 "max": 1.0,
             },
-            "epochs": {"type": "int", "default": 1000, "min": 1, "max": 10000},
+            "epochs": {"type": "int", "default": 200, "min": 1, "max": 5000},
             "batch_size": {"type": "int", "default": 0, "min": 0, "max": 1024},
         },
     },
@@ -343,6 +343,10 @@ def _create_classifier(algorithm: str, params: dict[str, Any] | None = None, ran
             max_iter=int(p.get("epochs", 200)),
             batch_size=int(p.get("batch_size", 0)) or "auto",
             random_state=random_state,
+            early_stopping=True,
+            n_iter_no_change=10,
+            validation_fraction=0.1,
+            tol=1e-4,
         )
     else:
         return RandomForestClassifier(
@@ -444,19 +448,10 @@ def _sliding_window(model: Any, img_info: dict, win_w: int, win_h: int, feat_w: 
 
 
 def _cancellable_fit(model: Any, X_train: np.ndarray, y_train: np.ndarray, cancelled_fn) -> bool:
-    if isinstance(model, MLPClassifier):
-        max_epochs = model.max_iter
-        model.set_params(warm_start=True, max_iter=1)
-        for _ in range(max_epochs):
-            if cancelled_fn():
-                return True
-            model.fit(X_train, y_train)
-        return False
-    else:
-        if cancelled_fn():
-            return True
-        model.fit(X_train, y_train)
-        return False
+    if cancelled_fn():
+        return True
+    model.fit(X_train, y_train)
+    return False
 
 
 def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float = 0.0, test_size: float = 0.0, algorithm: str = "random_forest", neg_per_ann: int = 10, params: dict[str, Any] | None = None, shuffle: bool = True, random_state: int = 42, k_folds: int = 5, patch_size: int = 0, test_image_ids_param: list[str] | None = None, stride: int = 0) -> None:
@@ -614,7 +609,8 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                 X_fold_train, X_fold_val = X[train_idx], X[val_idx]
                 y_fold_train, y_fold_val = y[train_idx], y[val_idx]
                 fold_model = _create_classifier(algorithm, params=params, random_state=random_state)
-                fold_model.fit(X_fold_train, y_fold_train)
+                if _cancellable_fit(fold_model, X_fold_train, y_fold_train, cancelled):
+                    return
                 y_fold_pred = fold_model.predict(X_fold_val)
                 for i in range(len(y_fold_val)):
                     vi = val_idx[i]
@@ -639,7 +635,8 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
             # Train final model on all data
             log_fn(f"Training final {algorithm} on full dataset...")
             model = _create_classifier(algorithm, params=params, random_state=random_state)
-            model.fit(X, y)
+            if _cancellable_fit(model, X, y, cancelled):
+                return
             train_acc = float(model.score(X, y))
             log_fn(f"Training accuracy: {train_acc:.4f}")
 

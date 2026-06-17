@@ -158,6 +158,7 @@
   "img_undo": "Deshacer",
   "img_clear_boxes": "Limpiar todo",
   "img_clear_boxes_confirm": "¿Limpiar todos los recuadros en esta imagen?",
+  "img_delete_confirm": "¿Eliminar esta imagen?",
   "img_clear_all_confirm": "¿Eliminar todas las imágenes?",
   "img_prev": "Anterior",
   "img_next": "Siguiente",

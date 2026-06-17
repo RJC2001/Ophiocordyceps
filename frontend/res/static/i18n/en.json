@@ -156,6 +156,7 @@
   "img_image": "image",
   "img_images": "images",
   "img_list_title": "Images",
+  "img_delete_confirm": "Delete this image?",
   "img_clear_all_confirm": "Clear all images?",
   "img_step2": "Step 2",
   "img_annotate_title": "Annotate Objects",

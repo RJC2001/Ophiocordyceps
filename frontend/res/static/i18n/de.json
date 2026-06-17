@@ -158,6 +158,7 @@
   "img_undo": "Rückgängig",
   "img_clear_boxes": "Alle löschen",
   "img_clear_boxes_confirm": "Alle Boxen auf diesem Bild löschen?",
+  "img_delete_confirm": "Dieses Bild löschen?",
   "img_clear_all_confirm": "Alle Bilder löschen?",
   "img_prev": "Zurück",
   "img_next": "Weiter",

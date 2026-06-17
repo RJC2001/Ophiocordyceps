@@ -290,6 +290,39 @@ function updateImageList() {
       badge.textContent = imgData.annotations.length;
       thumb.appendChild(badge);
     }
+    const delBtn = document.createElement("button");
+    delBtn.className = "img-thumb-del";
+    delBtn.title = t("delete") || "Delete";
+    delBtn.textContent = "\u2715";
+    delBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(t("img_delete_confirm") || "Delete this image?")) return;
+      if (imgData.uploaded && imgData.serverId) {
+        try {
+          await api("/api/image_train/delete", {
+            method: "POST",
+            body: JSON.stringify({ image_id: imgData.serverId })
+          });
+        } catch (_) {}
+      }
+      imgState.images.splice(i, 1);
+      if (imgState.currentIndex >= imgState.images.length && imgState.images.length > 0) {
+        imgState.currentIndex = imgState.images.length - 1;
+      } else if (imgState.images.length === 0) {
+        imgState.currentIndex = 0;
+        canvas.style.display = "none";
+        canvasPlaceholder.style.display = "";
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      imgState.selectedAnnotation = -1;
+      updateImageList();
+      updateNavButtons();
+      if (imgState.images.length > 0) {
+        selectImage(Math.min(imgState.currentIndex, imgState.images.length - 1));
+      }
+    });
+    thumb.appendChild(delBtn);
     if (isLocked) {
       thumb.style.cursor = "not-allowed";
     } else {
