@@ -811,7 +811,7 @@ class TrainHandler(BaseHTTPRequestHandler):
                 algorithm = str(payload.get("algorithm", "random_forest"))
                 neg_per_ann = int(payload.get("neg_per_ann", 10))
                 if neg_per_ann != -1:
-                    neg_per_ann = max(0, min(50, neg_per_ann))
+                    neg_per_ann = max(0, neg_per_ann)
                 params = dict(payload.get("params", {}))
                 shuffle = bool(payload.get("shuffle", True))
                 random_state = int(payload.get("random_state", 42))

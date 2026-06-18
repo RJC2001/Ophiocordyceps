@@ -599,6 +599,7 @@ function cursorForHandle(dir) {
 }
 
 canvas.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
   const rect = canvas.getBoundingClientRect();
   const cx = e.clientX - rect.left;
   const cy = e.clientY - rect.top;
@@ -748,10 +749,12 @@ canvas.addEventListener("mouseup", () => {
 });
 
 canvas.addEventListener("mouseleave", () => {
-  if (imgState.interactionMode === 'draw') {
+  if (imgState.interactionMode !== 'idle') {
     imgState.currentRect = null;
     imgState.isDrawing = false;
     imgState.interactionMode = 'idle';
+    imgState.dragOrigAnn = null;
+    imgState.resizeHandle = null;
     renderCurrentFrame();
   }
 });
