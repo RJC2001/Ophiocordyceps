@@ -226,5 +226,6 @@
   "param_strategy_quantile": "Quantile",
   "param_strategy_stratified": "Stratified",
   "param_strategy_uniform": "Uniform",
-  "rows_2": "{n} rows"
+  "rows_2": "{n} rows",
+  "grayscale": "Scala di grigi"
 }

@@ -36,8 +36,8 @@ IMAGE_ALGORITHMS: dict[str, Any] = {
         "label": "Random Forest",
         "description": "Ensemble of decision trees. Handles non-linear relationships, resistant to overfitting. Best default for small datasets (~20 images) — trains fast and generalizes well without tuning.",
         "params": {
-            "n_estimators": {"type": "int", "default": 200, "min": 1, "max": 2000},
-            "max_depth": {"type": "int", "default": 0, "min": 0, "max": 200},
+            "n_estimators": {"type": "int", "default": 200},
+            "max_depth": {"type": "int", "default": 0},
         },
     },
     "cnn": {
@@ -216,7 +216,7 @@ def start_image_training(
     val_size: float = 0.0,
     test_size: float = 0.0,
     algorithm: str = "random_forest",
-    neg_per_ann: int = 10,
+    neg_per_ann: int = 100,
     params: dict[str, Any] | None = None,
     shuffle: bool = True,
     random_state: int = 42,
@@ -224,12 +224,15 @@ def start_image_training(
     patch_size: int = 0,
     test_image_ids: list[str] | None = None,
     stride: int = 0,
+    grayscale: bool = False,
+
+
 ) -> dict[str, Any]:
     state = _init_state(session_id)
     state["_cancel"] = False
     thread = threading.Thread(
         target=_train_worker,
-        args=(session_id, val_strategy, val_size, test_size, algorithm, neg_per_ann, params, shuffle, random_state, k_folds, patch_size, test_image_ids, stride),
+        args=(session_id, val_strategy, val_size, test_size, algorithm, neg_per_ann, params, shuffle, random_state, k_folds, patch_size, test_image_ids, stride, grayscale),
         daemon=True,
     )
     thread.start()
@@ -267,7 +270,7 @@ def _log(state: dict[str, Any], msg: str) -> None:
         state["log"] = state["log"][-500:]
 
 
-def _extract_patch(img: Image.Image, x: int, y: int, w: int, h: int, pw: int = 32, ph: int = 32) -> np.ndarray | None:
+def _extract_patch(img: Image.Image, x: int, y: int, w: int, h: int, pw: int = 32, ph: int = 32, grayscale: bool = False) -> np.ndarray | None:
     x, y, w, h = int(x), int(y), int(w), int(h)
     x = max(0, x)
     y = max(0, y)
@@ -277,7 +280,7 @@ def _extract_patch(img: Image.Image, x: int, y: int, w: int, h: int, pw: int = 3
         return None
     patch = img.crop((x, y, x + w, y + h))
     patch = patch.resize((pw, ph), Image.Resampling.LANCZOS)
-    patch = patch.convert("RGB")
+    patch = patch.convert("L" if grayscale else "RGB")
     arr = np.array(patch, dtype=np.float32) / 255.0
     return arr.flatten()
 
@@ -395,30 +398,42 @@ def _nms_merge(predictions: list[dict[str, Any]], iou_threshold: float = 0.3) ->
     return merged
 
 
-def _sliding_window(model: Any, img_info: dict, win_w: int, win_h: int, feat_w: int, feat_h: int, img_id: str, stride: int = 0) -> list[dict[str, Any]]:
-    img_pil = Image.open(img_info["path"]).convert("RGB")
+def _sliding_window(model: Any, img_info: dict, win_w: int, win_h: int, feat_w: int, feat_h: int, img_id: str, stride: int = 0, grayscale: bool = False, jitter: bool = True) -> list[dict[str, Any]]:
+    mode = "L" if grayscale else "RGB"
+    img_pil = Image.open(img_info["path"]).convert(mode)
     img_arr = np.array(img_pil, dtype=np.float32) / 255.0
     img_pil.close()
-    img_h, img_w, _ = img_arr.shape
+    if grayscale:
+        img_h, img_w = img_arr.shape
+    else:
+        img_h, img_w, _ = img_arr.shape
     if stride > 0:
         stride_x = max(stride, 2)
         stride_y = max(stride, 2)
     else:
-        stride_x = max(win_w // 2, 4)
-        stride_y = max(win_h // 2, 4)
+        stride_x = max(win_w // 4, 2)
+        stride_y = max(win_h // 4, 2)
     has_proba = hasattr(model, "predict_proba")
     resize_needed = (feat_w, feat_h) != (win_w, win_h)
 
     patches: list[np.ndarray] = []
     coords: list[tuple[int, int]] = []
-    for y in range(0, img_h - win_h + 1, stride_y):
-        for x in range(0, img_w - win_w + 1, stride_x):
-            crop = img_arr[y:y+win_h, x:x+win_w]
+    rng = np.random.RandomState()
+    for grid_y in range(0, img_h - win_h + 1, stride_y):
+        for grid_x in range(0, img_w - win_w + 1, stride_x):
+            if jitter:
+                jx = int(rng.randint(-stride_x // 3, stride_x // 3 + 1))
+                jy = int(rng.randint(-stride_y // 3, stride_y // 3 + 1))
+                px = max(0, min(img_w - win_w, grid_x + jx))
+                py = max(0, min(img_h - win_h, grid_y + jy))
+            else:
+                px, py = grid_x, grid_y
+            crop = img_arr[py:py+win_h, px:px+win_w]
             if resize_needed:
                 cimg = Image.fromarray((crop * 255).astype(np.uint8)).resize((feat_w, feat_h), Image.Resampling.LANCZOS)
                 crop = np.asarray(cimg, dtype=np.float32) / 255.0
             patches.append(crop.flatten())
-            coords.append((x, y))
+            coords.append((px, py))
 
     if not patches:
         return []
@@ -454,7 +469,7 @@ def _cancellable_fit(model: Any, X_train: np.ndarray, y_train: np.ndarray, cance
     return False
 
 
-def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float = 0.0, test_size: float = 0.0, algorithm: str = "random_forest", neg_per_ann: int = 10, params: dict[str, Any] | None = None, shuffle: bool = True, random_state: int = 42, k_folds: int = 5, patch_size: int = 0, test_image_ids_param: list[str] | None = None, stride: int = 0) -> None:
+def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float = 0.0, test_size: float = 0.0, algorithm: str = "random_forest", neg_per_ann: int = 100, params: dict[str, Any] | None = None, shuffle: bool = True, random_state: int = 42, k_folds: int = 5, patch_size: int = 0, test_image_ids_param: list[str] | None = None, stride: int = 0, grayscale: bool = False) -> None:
     state = _init_state(session_id)
     state["status"] = "running"
     state["log"] = []
@@ -537,7 +552,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
             img = Image.open(img_info["path"])
 
             for ann in img_annotations:
-                patch = _extract_patch(img, ann["x"], ann["y"], ann["width"], ann["height"], fw, fh)
+                patch = _extract_patch(img, ann["x"], ann["y"], ann["width"], ann["height"], fw, fh, grayscale)
                 if patch is not None:
                     X_list.append(patch)
                     y_list.append(1)
@@ -567,7 +582,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                 if not overlaps:
                     patch = img.crop((nx, ny, nx + pw, ny + ph))
                     patch = patch.resize((fw, fh), Image.Resampling.LANCZOS)
-                    patch = patch.convert("RGB")
+                    patch = patch.convert("L" if grayscale else "RGB")
                     arr = np.array(patch, dtype=np.float32) / 255.0
                     X_list.append(arr.flatten())
                     y_list.append(0)
@@ -587,7 +602,8 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
             log_fn("Warning: No negative samples generated. Training with only positive samples. The model may not generalize well.")
 
         log_fn(f"Total: {pos_count} positive, {neg_count_total} negative samples")
-        log_fn(f"Detection window: {pw}x{ph} px, feature vector size: {fw * fh * 3} ({fw}x{fh}x3)")
+        channels = 1 if grayscale else 3
+        log_fn(f"Detection window: {pw}x{ph} px, feature vector size: {fw * fh * channels} ({fw}x{fh}x{channels}), grayscale={grayscale}")
 
         X = np.array(X_list)
         y = np.array(y_list)
@@ -644,7 +660,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
             for img_id, img_info in state["images"].items():
                 if cancelled():
                     return
-                sliding_list.extend(_sliding_window(model, img_info, pw, ph, fw, fh, img_id, stride))
+                sliding_list.extend(_sliding_window(model, img_info, pw, ph, fw, fh, img_id, stride, grayscale))
                 test_img_ids[img_id] = None
             if sliding_list:
                 raw_predictions = list(sliding_list)
@@ -755,7 +771,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                     if not img_info:
                         continue
                     log_fn(f"  Scanning {img_info['filename']} ({img_idx+1}/{len(test_image_ids_param)})...")
-                    dets = _sliding_window(model, img_info, pw, ph, fw, fh, img_id, stride)
+                    dets = _sliding_window(model, img_info, pw, ph, fw, fh, img_id, stride, grayscale)
                     sliding_list.extend(dets)
                     test_img_ids[img_id] = None
                     log_fn(f"    {img_info['filename']}: {len(dets)} raw detections")
@@ -817,6 +833,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                 "patch_height": ph,
                 "feature_width": fw,
                 "feature_height": fh,
+                "grayscale": grayscale,
                 "type": "image_detector",
                 "algorithm": algorithm,
                 "metrics": metrics,

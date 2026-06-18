@@ -821,8 +821,9 @@ class TrainHandler(BaseHTTPRequestHandler):
                 if patch_size != 0:
                     patch_size = max(8, min(512, patch_size))
                 stride = int(payload.get("stride", 0))
+                grayscale = bool(payload.get("grayscale", False))
                 test_image_ids = payload.get("test_image_ids", [])
-                result = start_img_training(sid, val_strategy=val_strategy, val_size=val_size, test_size=test_size, algorithm=algorithm, neg_per_ann=neg_per_ann, params=params, shuffle=shuffle, random_state=random_state, k_folds=k_folds, patch_size=patch_size, test_image_ids=test_image_ids, stride=stride)
+                result = start_img_training(sid, val_strategy=val_strategy, val_size=val_size, test_size=test_size, algorithm=algorithm, neg_per_ann=neg_per_ann, params=params, shuffle=shuffle, random_state=random_state, k_folds=k_folds, patch_size=patch_size, test_image_ids=test_image_ids, stride=stride, grayscale=grayscale)
                 send_json(self, HTTPStatus.OK, result, session_id=sid)
                 return
 

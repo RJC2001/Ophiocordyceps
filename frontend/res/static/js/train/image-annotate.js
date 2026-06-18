@@ -57,9 +57,9 @@ function renderImgHyperParams() {
     const label = t("param_" + key) || key.replace(/_/g, " ");
     const val = param.default;
     if (param.type === "int") {
-      html += `<label class="param-field"><span>${label}</span><input type="number" name="imgparam_${key}" value="${val}" min="${param.min}" max="${param.max}" step="1"></label>`;
+      html += `<label class="param-field"><span>${label}</span><input type="number" name="imgparam_${key}" value="${val}"${param.min !== undefined ? ` min="${param.min}"` : ""}${param.max !== undefined ? ` max="${param.max}"` : ""} step="1"></label>`;
     } else if (param.type === "float") {
-      html += `<label class="param-field"><span>${label}</span><input type="number" name="imgparam_${key}" value="${val}" min="${param.min}" max="${param.max}" step="any"></label>`;
+      html += `<label class="param-field"><span>${label}</span><input type="number" name="imgparam_${key}" value="${val}"${param.min !== undefined ? ` min="${param.min}"` : ""}${param.max !== undefined ? ` max="${param.max}"` : ""} step="any"></label>`;
     } else if (param.type === "select") {
       html += `<label class="param-field"><span>${label}</span><select name="imgparam_${key}">`;
       for (const opt of (param.options || [])) {

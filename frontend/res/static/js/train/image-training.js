@@ -275,6 +275,7 @@ imgTrainBtn.addEventListener("click", async () => {
         stride: document.getElementById("imgUseStride").checked
           ? parseInt(document.getElementById("imgStride").value) || 0
           : 0,
+        grayscale: document.getElementById("imgUseGrayscale").checked,
         test_image_ids: imgState.images.filter(im => im.locked).map(im => im.serverId),
       })
     });

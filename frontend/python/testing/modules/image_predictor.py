@@ -138,30 +138,33 @@ def predict_images(
     metadata: dict,
     images_b64: list[dict[str, str]],
     confidence_threshold: float = 0.5,
-    nms_threshold: float = 0.0,
+    nms_threshold: float = 0.2,
     scales: list[float] | None = None,
-    min_support: int = 2,
+    min_support: int = 1,
     cancelled_fn=_cancelled_default,
 ) -> tuple[bytes, list[dict]]:
     if scales is None:
-        scales = [1.0, 1.5, 0.75]
+        scales = [1.0, 0.85, 0.7]
     pw = metadata.get("patch_width") or metadata.get("patch_size", 32)
     ph = metadata.get("patch_height") or metadata.get("patch_size", 32)
     fw = metadata.get("feature_width", pw)
     fh = metadata.get("feature_height", ph)
+    grayscale = metadata.get("grayscale", False)
     resize_feat = (fw, fh) != (pw, ph)
-    stride_x = max(pw // 2, 4)
-    stride_y = max(ph // 2, 4)
+    stride_x = max(pw // 4, 2)
+    stride_y = max(ph // 4, 2)
 
     all_results: list[dict] = []
     buf = io.BytesIO()
+    rng = np.random.RandomState()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for img_entry in images_b64:
             if cancelled_fn():
                 return b"", []
             filename = img_entry.get("filename", "image.png")
             raw = base64.b64decode(img_entry["data"])
-            img = Image.open(io.BytesIO(raw)).convert("RGB")
+            mode = "L" if grayscale else "RGB"
+            img = Image.open(io.BytesIO(raw)).convert(mode)
             orig_w, orig_h = img.size
 
             all_detections: list[dict] = []
@@ -178,14 +181,18 @@ def predict_images(
 
                 patch_features: list[np.ndarray] = []
                 patch_coords: list[tuple[int, int]] = []
-                for y in range(0, sh - ph + 1, stride_y):
-                    for x in range(0, sw - pw + 1, stride_x):
-                        crop = resized_arr[y:y+ph, x:x+pw]
+                for grid_y in range(0, sh - ph + 1, stride_y):
+                    for grid_x in range(0, sw - pw + 1, stride_x):
+                        jx = int(rng.randint(-stride_x // 3, stride_x // 3 + 1))
+                        jy = int(rng.randint(-stride_y // 3, stride_y // 3 + 1))
+                        px = max(0, min(sw - pw, grid_x + jx))
+                        py = max(0, min(sh - ph, grid_y + jy))
+                        crop = resized_arr[py:py+ph, px:px+pw]
                         if resize_feat:
                             cimg = Image.fromarray((crop * 255).astype(np.uint8)).resize((fw, fh), Image.Resampling.LANCZOS)
                             crop = np.asarray(cimg, dtype=np.float32) / 255.0
                         patch_features.append(crop.flatten())
-                        patch_coords.append((x, y))
+                        patch_coords.append((px, py))
 
                 if not patch_features:
                     continue

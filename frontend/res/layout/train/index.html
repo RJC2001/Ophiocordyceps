@@ -334,26 +334,36 @@
               </label>
             </div>
             <div id="imgParamsRow" class="img-seed-row">
+              <div style="display:flex;gap:12px;align-items:center">
+                <label class="checkbox-inline" style="font-size:12px">
+                  <input type="checkbox" id="imgUseNeg" checked>
+                  <span data-i18n="img_neg_per_ann">Neg./ann.</span>
+                  <input type="number" id="imgNegPerAnn" value="100" min="0" style="width:80px">
+                </label>
+                <label class="checkbox-inline" style="font-size:12px">
+                  <input type="checkbox" id="imgUseShuffle">
+                  <span data-i18n="shuffle_label">Shuffle</span>
+                  <input type="number" id="imgRandomSeed" min="0" max="999999" step="1" value="42" style="width:70px">
+                </label>
+              </div>
+              <div style="flex:1"></div>
               <label class="checkbox-inline" style="font-size:12px">
-                <input type="checkbox" id="imgUseNeg" checked>
-                <span data-i18n="img_neg_per_ann">Neg./ann.</span>
-                <input type="number" id="imgNegPerAnn" value="10" min="0" style="width:80px">
+                <input type="checkbox" id="imgUseGrayscale">
+                <span data-i18n="grayscale">Grayscale</span>
               </label>
-              <label class="checkbox-inline" style="font-size:12px">
-                <input type="checkbox" id="imgUseShuffle" checked>
-                <span data-i18n="shuffle_label">Shuffle</span>
-                <input type="number" id="imgRandomSeed" min="0" max="999999" step="1" value="42" style="width:70px">
-              </label>
-              <label class="checkbox-inline" style="font-size:12px;margin-left:auto">
-                <input type="checkbox" id="imgUsePatchSize">
-                <span>Patch size</span>
-                <input type="number" id="imgPatchSize" min="8" max="512" step="8" value="32" style="width:70px" disabled>
-              </label>
-              <label class="checkbox-inline" style="font-size:12px">
-                <input type="checkbox" id="imgUseStride">
-                <span data-i18n="overlap_stride">Overlap stride</span>
-                <input type="number" id="imgStride" min="2" step="1" value="16" style="width:70px" disabled>
-              </label>
+              <div style="flex:1"></div>
+              <div style="display:flex;gap:12px;align-items:center">
+                <label class="checkbox-inline" style="font-size:12px">
+                  <input type="checkbox" id="imgUsePatchSize">
+                  <span>Patch size</span>
+                  <input type="number" id="imgPatchSize" min="8" max="512" step="8" value="32" style="width:70px" disabled>
+                </label>
+                <label class="checkbox-inline" style="font-size:12px">
+                  <input type="checkbox" id="imgUseStride">
+                  <span data-i18n="overlap_stride">Overlap stride</span>
+                  <input type="number" id="imgStride" min="2" step="1" value="16" style="width:70px" disabled>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -440,8 +450,8 @@
             <input type="range" id="tuningConfSlider" min="0" max="1" step="0.01" value="0.5">
           </label>
           <label class="tuning-slider-wrap">
-            <span>NMS: <strong id="tuningNmsValue">0.20</strong></span>
-            <input type="range" id="tuningNmsSlider" min="0" max="1" step="0.01" value="0">
+            <span>NMS: <strong id="tuningNmsValue">1.00</strong></span>
+            <input type="range" id="tuningNmsSlider" min="0" max="1" step="0.01" value="1.0">
           </label>
         </div>
       </section>

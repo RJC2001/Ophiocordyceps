@@ -43,8 +43,8 @@ ALGORITHMS = {
         "label": "Random Forest",
         "description": "Ensemble of decision trees. Handles non-linear relationships, resistant to overfitting. Best default choice for classification and regression — works well without tuning.",
         "params": {
-            "n_estimators": {"type": "int", "default": 100, "min": 1, "max": 2000},
-            "max_depth": {"type": "int", "default": 0, "min": 0, "max": 200},
+            "n_estimators": {"type": "int", "default": 100},
+            "max_depth": {"type": "int", "default": 0},
         },
     },
     "dummy": {
@@ -100,8 +100,8 @@ ALGORITHMS = {
         "label": "XGBoost",
         "description": "Gradient boosted trees. Often wins Kaggle competitions. Handles mixed data types, missing values. Can overfit on small datasets.",
         "params": {
-            "n_estimators": {"type": "int", "default": 100, "min": 1, "max": 2000},
-            "max_depth": {"type": "int", "default": 6, "min": 1, "max": 50},
+            "n_estimators": {"type": "int", "default": 100},
+            "max_depth": {"type": "int", "default": 6},
             "learning_rate": {
                 "type": "float",
                 "default": 0.3,
