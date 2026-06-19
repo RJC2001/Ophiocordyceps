@@ -227,5 +227,10 @@
   "param_strategy_stratified": "Stratified",
   "param_strategy_uniform": "Uniform",
   "rows_2": "{n} rows",
-  "grayscale": "Graustufen"
+  "grayscale": "Graustufen",
+  "img_iou_conf": "IoU-Schwelle (Conf.)",
+  "img_iou_nms": "IoU-Schwelle (NMS)",
+  "img_jitter_bc": "Helligkeit/Kontrast",
+  "img_feature_size": "Merkmalgröße",
+  "img_patch_size": "Patch-Größe"
 }

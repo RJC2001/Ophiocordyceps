@@ -227,5 +227,10 @@
   "cancel_train": "Anuluj",
   "cancelling": "Anulowanie...",
   "overlap_stride": "Krok nakładania",
-  "grayscale": "Skala szarości"
+  "grayscale": "Skala szarości",
+  "img_iou_conf": "Próg IoU (conf.)",
+  "img_iou_nms": "Próg IoU (NMS)",
+  "img_jitter_bc": "Jitter B/C",
+  "img_feature_size": "Rozmiar cech",
+  "img_patch_size": "Rozmiar okna"
 }

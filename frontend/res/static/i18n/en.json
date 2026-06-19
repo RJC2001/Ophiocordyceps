@@ -227,5 +227,10 @@
   "param_strategy_stratified": "Stratified",
   "param_strategy_uniform": "Uniform",
   "rows_2": "{n} rows",
-  "grayscale": "Grayscale"
+  "grayscale": "Grayscale",
+  "img_iou_conf": "IoU conf.",
+  "img_iou_nms": "IoU NMS",
+  "img_jitter_bc": "Jitter B/C",
+  "img_feature_size": "Feature size",
+  "img_patch_size": "Patch size"
 }

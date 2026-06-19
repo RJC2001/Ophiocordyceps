@@ -227,5 +227,10 @@
   "param_strategy_stratified": "Stratified",
   "param_strategy_uniform": "Uniform",
   "rows_2": "{n} rows",
-  "grayscale": "Niveaux de gris"
+  "grayscale": "Niveaux de gris",
+  "img_iou_conf": "Seuil IoU (conf.)",
+  "img_iou_nms": "Seuil IoU (NMS)",
+  "img_jitter_bc": "Luminosité/Contraste",
+  "img_feature_size": "Taille des caractéristiques",
+  "img_patch_size": "Taille de fenêtre"
 }

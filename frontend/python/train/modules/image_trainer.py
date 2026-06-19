@@ -225,14 +225,16 @@ def start_image_training(
     test_image_ids: list[str] | None = None,
     stride: int = 0,
     grayscale: bool = False,
-
-
+    feature_size: int = 0,
+    iou_threshold_neg: float = 0.0,
+    iou_threshold_nms: float = 0.0,
+    brightness_contrast_jitter: bool = False,
 ) -> dict[str, Any]:
     state = _init_state(session_id)
     state["_cancel"] = False
     thread = threading.Thread(
         target=_train_worker,
-        args=(session_id, val_strategy, val_size, test_size, algorithm, neg_per_ann, params, shuffle, random_state, k_folds, patch_size, test_image_ids, stride, grayscale),
+        args=(session_id, val_strategy, val_size, test_size, algorithm, neg_per_ann, params, shuffle, random_state, k_folds, patch_size, test_image_ids, stride, grayscale, feature_size, iou_threshold_neg, iou_threshold_nms, brightness_contrast_jitter),
         daemon=True,
     )
     thread.start()
@@ -285,7 +287,7 @@ def _extract_patch(img: Image.Image, x: int, y: int, w: int, h: int, pw: int = 3
     return arr.flatten()
 
 
-def _augment_patch(features: np.ndarray, pw: int, ph: int) -> np.ndarray:
+def _augment_patch(features: np.ndarray, pw: int, ph: int, brightness_contrast_jitter: bool = False) -> np.ndarray:
     n = features.size
     channels = n // (pw * ph)
     img = features.reshape(ph, pw, channels)
@@ -296,6 +298,11 @@ def _augment_patch(features: np.ndarray, pw: int, ph: int) -> np.ndarray:
     if np.random.rand() < 0.25:
         k = np.random.randint(1, 4)
         img = np.rot90(img, k)
+    if brightness_contrast_jitter:
+        brightness = np.random.uniform(0.8, 1.2)
+        contrast = np.random.uniform(0.8, 1.2)
+        img = img * contrast + 0.5 * (1 - contrast) + np.random.uniform(-0.1, 0.1)
+        img = np.clip(img, 0, 1)
     return img.flatten()
 
 
@@ -361,6 +368,8 @@ def _create_classifier(algorithm: str, params: dict[str, Any] | None = None, ran
 
 
 def _nms_merge(predictions: list[dict[str, Any]], iou_threshold: float = 0.3) -> list[dict[str, Any]]:
+    if iou_threshold <= 0:
+        return predictions
     if not predictions:
         return []
     by_img: dict[str, list[dict[str, Any]]] = {}
@@ -469,7 +478,7 @@ def _cancellable_fit(model: Any, X_train: np.ndarray, y_train: np.ndarray, cance
     return False
 
 
-def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float = 0.0, test_size: float = 0.0, algorithm: str = "random_forest", neg_per_ann: int = 100, params: dict[str, Any] | None = None, shuffle: bool = True, random_state: int = 42, k_folds: int = 5, patch_size: int = 0, test_image_ids_param: list[str] | None = None, stride: int = 0, grayscale: bool = False) -> None:
+def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float = 0.0, test_size: float = 0.0, algorithm: str = "random_forest", neg_per_ann: int = 100, params: dict[str, Any] | None = None, shuffle: bool = True, random_state: int = 42, k_folds: int = 5, patch_size: int = 0, test_image_ids_param: list[str] | None = None, stride: int = 0, grayscale: bool = False, feature_size: int = 0, iou_threshold_neg: float = 0.0, iou_threshold_nms: float = 0.0, brightness_contrast_jitter: bool = False) -> None:
     state = _init_state(session_id)
     state["status"] = "running"
     state["log"] = []
@@ -537,8 +546,9 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
 
         # Feature resolution is capped independently of the detection window so
         # memory stays bounded even for large annotations (e.g. big circles).
-        fw = max(8, min(pw, FEATURE_SIZE))
-        fh = max(8, min(ph, FEATURE_SIZE))
+        fs = feature_size if feature_size > 0 else FEATURE_SIZE
+        fw = max(8, min(pw, fs))
+        fh = max(8, min(ph, fs))
         if (fw, fh) != (pw, ph):
             log_fn(f"Feature resolution: {fw}x{fh} (windows resized down from {pw}x{ph})")
 
@@ -558,7 +568,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                     y_list.append(1)
                     sample_meta.append({"img_id": img_id, "x": ann["x"], "y": ann["y"], "w": ann["width"], "h": ann["height"]})
                     for _ in range(3):
-                        aug = _augment_patch(patch, fw, fh)
+                        aug = _augment_patch(patch, fw, fh, brightness_contrast_jitter)
                         X_list.append(aug)
                         y_list.append(1)
                         sample_meta.append({"img_id": img_id, "x": ann["x"], "y": ann["y"], "w": ann["width"], "h": ann["height"]})
@@ -574,8 +584,9 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                 ny = int(np.random.randint(0, max(img_h - ph, 1)))
 
                 overlaps = False
+                iou_neg_thresh = iou_threshold_neg if iou_threshold_neg > 0 else 0.3
                 for ann in img_annotations:
-                    if _iou(nx, ny, pw, ph, ann["x"], ann["y"], ann["width"], ann["height"]) > 0.3:
+                    if _iou(nx, ny, pw, ph, ann["x"], ann["y"], ann["width"], ann["height"]) > iou_neg_thresh:
                         overlaps = True
                         break
 
@@ -664,7 +675,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                 test_img_ids[img_id] = None
             if sliding_list:
                 raw_predictions = list(sliding_list)
-                sliding_list[:] = _nms_merge(sliding_list)
+                sliding_list[:] = _nms_merge(sliding_list, iou_threshold=iou_threshold_nms)
                 log_fn(f"Sliding window detection on all {len(state['images'])} images (k-fold), NMS merged {len(raw_predictions)} -> {len(sliding_list)} boxes")
 
             algo_label = IMAGE_ALGORITHMS.get(algorithm, {}).get("label", algorithm)
@@ -777,7 +788,7 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                     log_fn(f"    {img_info['filename']}: {len(dets)} raw detections")
                 raw_predictions = list(sliding_list)
                 before = len(sliding_list)
-                sliding_list[:] = _nms_merge(sliding_list)
+                sliding_list[:] = _nms_merge(sliding_list, iou_threshold=iou_threshold_nms)
                 after = len(sliding_list)
                 if after < before:
                     log_fn(f"  NMS merged {before} raw detections into {after} merged boxes")

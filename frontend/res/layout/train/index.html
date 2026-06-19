@@ -333,7 +333,17 @@
                 <span data-i18n="val_strategy_kfold">K-fold cross-validation</span>
               </label>
             </div>
-            <div id="imgParamsRow" class="img-seed-row">
+            <div id="imgParamsRow" class="img-seed-row" style="flex-wrap:wrap">
+              <div style="display:flex;gap:12px;align-items:center;width:100%">
+                <label class="checkbox-inline" style="font-size:12px">
+                  <input type="checkbox" id="imgUseGrayscale">
+                  <span data-i18n="grayscale">Grayscale</span>
+                </label>
+                <label class="checkbox-inline" style="font-size:12px">
+                  <input type="checkbox" id="imgUseJitter">
+                  <span data-i18n="img_jitter_bc">Jitter B/C</span>
+                </label>
+              </div>
               <div style="display:flex;gap:12px;align-items:center">
                 <label class="checkbox-inline" style="font-size:12px">
                   <input type="checkbox" id="imgUseNeg" checked>
@@ -346,22 +356,28 @@
                   <input type="number" id="imgRandomSeed" min="0" max="999999" step="1" value="42" style="width:70px">
                 </label>
               </div>
-              <div style="flex:1"></div>
-              <label class="checkbox-inline" style="font-size:12px">
-                <input type="checkbox" id="imgUseGrayscale">
-                <span data-i18n="grayscale">Grayscale</span>
-              </label>
-              <div style="flex:1"></div>
+              <div style="display:flex;gap:12px;align-items:center">
+                <label class="checkbox-inline" style="font-size:12px">
+                  <input type="checkbox" id="imgUseIouConf" checked>
+                  <span data-i18n="img_iou_conf">IoU conf.</span>
+                  <input type="number" id="imgIouConf" min="0" max="1" step="0.01" value="0.01" style="width:70px" disabled>
+                </label>
+                <label class="checkbox-inline" style="font-size:12px">
+                  <input type="checkbox" id="imgUseIouNms" checked>
+                  <span data-i18n="img_iou_nms">IoU NMS</span>
+                  <input type="number" id="imgIouNms" min="0" max="1" step="0.01" value="0.01" style="width:70px" disabled>
+                </label>
+              </div>
               <div style="display:flex;gap:12px;align-items:center">
                 <label class="checkbox-inline" style="font-size:12px">
                   <input type="checkbox" id="imgUsePatchSize">
-                  <span>Patch size</span>
+                  <span data-i18n="img_patch_size">Patch size</span>
                   <input type="number" id="imgPatchSize" min="8" max="512" step="8" value="32" style="width:70px" disabled>
                 </label>
                 <label class="checkbox-inline" style="font-size:12px">
-                  <input type="checkbox" id="imgUseStride">
-                  <span data-i18n="overlap_stride">Overlap stride</span>
-                  <input type="number" id="imgStride" min="2" step="1" value="16" style="width:70px" disabled>
+                  <input type="checkbox" id="imgUseFeatureSize">
+                  <span data-i18n="img_feature_size">Feature size</span>
+                  <input type="number" id="imgFeatureSize" min="8" max="512" step="8" value="64" style="width:70px" disabled>
                 </label>
               </div>
             </div>

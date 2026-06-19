@@ -146,7 +146,7 @@ function validateImgParams() {
   for (const input of imgHyperParams.querySelectorAll("input[type=number]")) {
     if (!validateNumberInput(input)) valid = false;
   }
-  for (const id of ["imgPatchSize", "imgNegPerAnn", "imgRandomSeed", "imgStride", "imgKFolds"]) {
+  for (const id of ["imgPatchSize", "imgNegPerAnn", "imgRandomSeed", "imgKFolds", "imgIouConf", "imgIouNms", "imgFeatureSize"]) {
     const el = document.getElementById(id);
     if (el && el.type === "number" && !el.disabled && !validateNumberInput(el)) valid = false;
   }
@@ -157,7 +157,7 @@ function validateImgParams() {
 imgHyperParams.addEventListener("input", (e) => {
   if (e.target.type === "number") validateNumberInput(e.target);
 });
-for (const id of ["imgPatchSize", "imgNegPerAnn", "imgRandomSeed", "imgStride", "imgKFolds"]) {
+for (const id of ["imgPatchSize", "imgNegPerAnn", "imgRandomSeed", "imgKFolds", "imgIouConf", "imgIouNms", "imgFeatureSize"]) {
   const el = document.getElementById(id);
   if (el && el.type === "number") el.addEventListener("input", () => validateNumberInput(el));
 }
@@ -175,8 +175,10 @@ function bindEnableToggle(cbId, selector) {
 document.addEventListener("DOMContentLoaded", () => {
   bindEnableToggle("imgUsePatchSize", "imgPatchSize");
   bindEnableToggle("imgUseNeg", "imgNegPerAnn");
-  bindEnableToggle("imgUseStride", "imgStride");
   bindEnableToggle("imgUseShuffle", "imgRandomSeed");
+  bindEnableToggle("imgUseIouConf", "imgIouConf");
+  bindEnableToggle("imgUseIouNms", "imgIouNms");
+  bindEnableToggle("imgUseFeatureSize", "imgFeatureSize");
   bindEnableToggle("csvUseShuffle", "random_state");
 });
 
@@ -272,10 +274,17 @@ imgTrainBtn.addEventListener("click", async () => {
         patch_size: document.getElementById("imgUsePatchSize").checked
           ? parseInt(document.getElementById("imgPatchSize").value) || 32
           : 0,
-        stride: document.getElementById("imgUseStride").checked
-          ? parseInt(document.getElementById("imgStride").value) || 0
-          : 0,
         grayscale: document.getElementById("imgUseGrayscale").checked,
+        feature_size: document.getElementById("imgUseFeatureSize").checked
+          ? parseInt(document.getElementById("imgFeatureSize").value) || 64
+          : 0,
+        iou_threshold_neg: document.getElementById("imgUseIouConf").checked
+          ? parseFloat(document.getElementById("imgIouConf").value) || 0.1
+          : 0,
+        iou_threshold_nms: document.getElementById("imgUseIouNms").checked
+          ? parseFloat(document.getElementById("imgIouNms").value) || 0.1
+          : 0,
+        brightness_contrast_jitter: document.getElementById("imgUseJitter").checked,
         test_image_ids: imgState.images.filter(im => im.locked).map(im => im.serverId),
       })
     });
