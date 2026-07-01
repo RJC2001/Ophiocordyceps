@@ -4,13 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-ROOT_DIR = Path(__file__).resolve().parents[3]
-FRONTEND_DIR = ROOT_DIR / "frontend"
+ROOT_DIR = Path(__file__).resolve().parents[1]
+RES_DIR = ROOT_DIR / "res"
 DB_DIR = ROOT_DIR / "db"
 
-LAYOUT_DIR = FRONTEND_DIR / "res" / "layout" / "train"
-TEST_LAYOUT_DIR = FRONTEND_DIR / "res" / "layout" / "test"
-STATIC_DIR = FRONTEND_DIR / "res" / "static"
+LAYOUT_DIR = RES_DIR / "layout" / "train"
+TEST_LAYOUT_DIR = RES_DIR / "layout" / "test"
+STATIC_DIR = RES_DIR / "static"
 CSS_DIR = STATIC_DIR / "css"
 THEME_DIR = CSS_DIR / "themes"
 I18N_DIR = STATIC_DIR / "i18n"

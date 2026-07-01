@@ -18,7 +18,7 @@ from urllib.parse import urlparse, parse_qs
 import joblib
 import pandas as pd
 
-from core.config import LAYOUT_DIR, TEST_LAYOUT_DIR, FRONTEND_DIR, STATIC_DIR, TEMP_DIR, MODEL_TEMP_DIR, MODELS_DIR
+from core.config import LAYOUT_DIR, TEST_LAYOUT_DIR, RES_DIR, STATIC_DIR, TEMP_DIR, MODEL_TEMP_DIR, MODELS_DIR
 
 from core.sessions import (
     COOKIE_NAME,
@@ -237,7 +237,7 @@ class TrainHandler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             clear_uploaded(sid)
             clean_model_temp(sid)
-            html = (FRONTEND_DIR / "res" / "layout" / "index.html").read_text(encoding="utf-8")
+            html = (RES_DIR / "layout" / "index.html").read_text(encoding="utf-8")
             send_text(self, HTTPStatus.OK, html, "text/html; charset=utf-8", session_id=sid)
             return
 
