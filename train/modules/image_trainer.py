@@ -11,7 +11,7 @@ from typing import Any
 
 import joblib
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.svm import SVC
@@ -272,7 +272,7 @@ def _log(state: dict[str, Any], msg: str) -> None:
         state["log"] = state["log"][-500:]
 
 
-def _extract_patch(img: Image.Image, x: int, y: int, w: int, h: int, pw: int = 32, ph: int = 32, grayscale: bool = False) -> np.ndarray | None:
+def _extract_patch(img: Image.Image, x: int, y: int, w: int, h: int, pw: int = 32, ph: int = 32, grayscale: bool = False, ann_type: str = "rect", points: list[dict] | None = None) -> np.ndarray | None:
     x, y, w, h = int(x), int(y), int(w), int(h)
     x = max(0, x)
     y = max(0, y)
@@ -284,6 +284,22 @@ def _extract_patch(img: Image.Image, x: int, y: int, w: int, h: int, pw: int = 3
     patch = patch.resize((pw, ph), Image.Resampling.LANCZOS)
     patch = patch.convert("L" if grayscale else "RGB")
     arr = np.array(patch, dtype=np.float32) / 255.0
+
+    if ann_type in ("circle", "polygon"):
+        mask_img = Image.new("L", (w, h), 0)
+        draw = ImageDraw.Draw(mask_img)
+        if ann_type == "circle":
+            draw.ellipse([0, 0, w - 1, h - 1], fill=255)
+        elif ann_type == "polygon" and points:
+            local_pts = [(p["x"] - x, p["y"] - y) for p in points]
+            draw.polygon(local_pts, fill=255)
+        mask_img = mask_img.resize((pw, ph), Image.Resampling.LANCZOS)
+        mask_arr = np.array(mask_img, dtype=np.float32) / 255.0
+        if grayscale:
+            arr = arr * mask_arr
+        else:
+            arr = arr * mask_arr[:, :, np.newaxis]
+
     return arr.flatten()
 
 
@@ -316,6 +332,49 @@ def _iou(x1: float, y1: float, w1: float, h1: float, x2: float, y2: float, w2: f
         union = w1 * h1 + w2 * h2 - inter
         return inter / union if union > 0 else 0
     return 0
+
+
+def _point_in_polygon(px: float, py: float, points: list[dict]) -> bool:
+    inside = False
+    n = len(points)
+    for i in range(n):
+        x1, y1 = points[i]["x"], points[i]["y"]
+        x2, y2 = points[(i + 1) % n]["x"], points[(i + 1) % n]["y"]
+        if ((y1 > py) != (y2 > py)) and (px < (x2 - x1) * (py - y1) / (y2 - y1) + x1):
+            inside = not inside
+    return inside
+
+
+def _annotation_overlaps_patch(nx: float, ny: float, pw: float, ph: float, ann: dict) -> bool:
+    ax, ay = ann["x"], ann["y"]
+    aw, ah = ann["width"], ann["height"]
+    if nx + pw <= ax or nx >= ax + aw or ny + ph <= ay or ny >= ay + ah:
+        return False
+    ann_type = ann.get("type", "rect")
+    if ann_type == "rect":
+        return True
+    if ann_type == "circle":
+        cx = ax + aw / 2
+        cy = ay + ah / 2
+        rx = max(aw / 2, 1)
+        ry = max(ah / 2, 1)
+        for px, py in [(nx, ny), (nx + pw, ny), (nx, ny + ph), (nx + pw, ny + ph),
+                        (nx + pw / 2, ny + ph / 2)]:
+            dx = (px - cx) / rx
+            dy = (py - cy) / ry
+            if dx * dx + dy * dy <= 1:
+                return True
+        return False
+    if ann_type == "polygon":
+        pts = ann.get("points", [])
+        if not pts:
+            return True
+        for px, py in [(nx + pw / 2, ny + ph / 2), (nx, ny), (nx + pw, ny),
+                        (nx, ny + ph), (nx + pw, ny + ph)]:
+            if _point_in_polygon(px, py, pts):
+                return True
+        return False
+    return True
 
 
 def _create_classifier(algorithm: str, params: dict[str, Any] | None = None, random_state: int = 42):
@@ -562,7 +621,9 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
             img = Image.open(img_info["path"])
 
             for ann in img_annotations:
-                patch = _extract_patch(img, ann["x"], ann["y"], ann["width"], ann["height"], fw, fh, grayscale)
+                ann_type = ann.get("type", "rect")
+                points = ann.get("points") if ann_type == "polygon" else None
+                patch = _extract_patch(img, ann["x"], ann["y"], ann["width"], ann["height"], fw, fh, grayscale, ann_type, points)
                 if patch is not None:
                     X_list.append(patch)
                     y_list.append(1)
@@ -586,9 +647,11 @@ def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float
                 overlaps = False
                 iou_neg_thresh = iou_threshold_neg if iou_threshold_neg > 0 else 0.3
                 for ann in img_annotations:
-                    if _iou(nx, ny, pw, ph, ann["x"], ann["y"], ann["width"], ann["height"]) > iou_neg_thresh:
-                        overlaps = True
-                        break
+                    if _annotation_overlaps_patch(nx, ny, pw, ph, ann):
+                        iou = _iou(nx, ny, pw, ph, ann["x"], ann["y"], ann["width"], ann["height"])
+                        if iou > iou_neg_thresh:
+                            overlaps = True
+                            break
 
                 if not overlaps:
                     patch = img.crop((nx, ny, nx + pw, ny + ph))

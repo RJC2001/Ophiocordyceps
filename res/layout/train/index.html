@@ -296,12 +296,18 @@
             <canvas id="annotationCanvas"></canvas>
             <div id="canvasPlaceholder" class="canvas-placeholder">
               <p data-i18n="img_canvas_hint">Draw rectangles around objects. Click and drag to mark an area.</p>
+              <p id="polygonHint" class="polygon-hint" style="display:none" data-i18n="img_polygon_hint">Click to add vertices, double-click or click first vertex to close.</p>
             </div>
           </div>
           <div class="annotation-tools">
             <div class="annotation-info">
               <span data-i18n="img_boxes">Boxes:</span>
               <strong id="boxCount">0</strong>
+            </div>
+            <div class="shape-mode-buttons">
+              <button type="button" class="shape-btn active" data-shape="rect" title="Rectangle"><svg viewBox="0 0 20 20" width="16" height="16"><rect x="2" y="2" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"/></svg></button>
+              <button type="button" class="shape-btn" data-shape="circle" title="Ellipse"><svg viewBox="0 0 20 20" width="16" height="16"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2.5"/></svg></button>
+              <button type="button" class="shape-btn" data-shape="polygon" title="Polygon"><svg viewBox="0 0 20 20" width="16" height="16"><polygon points="10,1.5 18.5,7.5 15.5,17.5 4.5,17.5 1.5,7.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg></button>
             </div>
             <button type="button" id="undoBoxBtn" class="secondary small-btn" data-i18n="img_undo">Undo last</button>
             <button type="button" id="clearBoxesBtn" class="secondary small-btn" data-i18n="img_clear_boxes">Clear all</button>

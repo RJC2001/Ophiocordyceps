@@ -17,6 +17,10 @@ let imgState = {
   interactionMode: 'idle',
   resizeHandle: null,
   dragOrigAnn: null,
+  shapeMode: 'rect',
+  polygonPoints: [],
+  polygonCursorX: 0,
+  polygonCursorY: 0,
 };
 
 // ── Image Algorithms ──
@@ -443,12 +447,38 @@ clearAllImagesBtn.addEventListener("click", () => {
 
 // ── Canvas ──
 
+// ── Shape mode switching ──
+
+document.querySelectorAll(".shape-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (imgState.polygonPoints.length > 0) {
+      imgState.polygonPoints = [];
+      renderCurrentFrame();
+    }
+    document.querySelectorAll(".shape-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    imgState.shapeMode = btn.dataset.shape;
+    const hint = document.getElementById("polygonHint");
+    if (hint) hint.style.display = imgState.shapeMode === "polygon" ? "" : "none";
+    const placeholder = document.getElementById("canvasPlaceholder");
+    if (placeholder && placeholder.style.display !== "none") {
+      const p = placeholder.querySelector("p:first-child");
+      if (p) {
+        if (imgState.shapeMode === "rect") p.textContent = "Click and drag to draw a rectangle.";
+        else if (imgState.shapeMode === "circle") p.textContent = "Click and drag to draw an ellipse.";
+        else p.textContent = "Click to place vertices, double-click to close polygon.";
+      }
+    }
+  });
+});
+
 function renderCanvas(index) {
   const imgData = imgState.images[index];
   if (!imgData) return;
 
   canvasPlaceholder.style.display = "none";
   canvas.style.display = "";
+  imgState.polygonPoints = [];
 
   if (imgData.locked) {
     canvas.style.pointerEvents = "none";
@@ -515,47 +545,125 @@ function renderBaseLayer(index) {
   img.src = imgData.dataUrl;
 }
 
+function _drawAnnotationShape(ann, scale, strokeColor, lineWidth) {
+  const t = ann.type || "rect";
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = lineWidth;
+  if (t === "circle") {
+    const cx = (ann.x + ann.width / 2) * scale;
+    const cy = (ann.y + ann.height / 2) * scale;
+    const rx = (ann.width / 2) * scale;
+    const ry = (ann.height / 2) * scale;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (t === "polygon") {
+    const pts = ann.points || [];
+    if (pts.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x * scale, pts[0].y * scale);
+    for (let k = 1; k < pts.length; k++) {
+      ctx.lineTo(pts[k].x * scale, pts[k].y * scale);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(0,255,0,0.08)";
+    ctx.fill();
+  } else {
+    const x = ann.x * scale, y = ann.y * scale;
+    const bw = ann.width * scale, bh = ann.height * scale;
+    ctx.strokeRect(x, y, bw, bh);
+  }
+}
+
+function _drawSelectionHandles(ann, scale) {
+  const t = ann.type || "rect";
+  const hs = 6;
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "#ffcc00";
+  ctx.lineWidth = 2;
+
+  let handles = [];
+  if (t === "circle") {
+    const cx = (ann.x + ann.width / 2) * scale;
+    const cy = (ann.y + ann.height / 2) * scale;
+    const rx = (ann.width / 2) * scale;
+    const ry = (ann.height / 2) * scale;
+    handles = [
+      [cx - rx, cy], [cx + rx, cy],
+      [cx, cy - ry], [cx, cy + ry],
+    ];
+  } else if (t === "polygon") {
+    const pts = ann.points || [];
+    for (const p of pts) {
+      handles.push([p.x * scale, p.y * scale]);
+    }
+  } else {
+    const hx = ann.x * scale, hy = ann.y * scale;
+    const hw = ann.width * scale, hh = ann.height * scale;
+    handles = [
+      [hx, hy], [hx + hw / 2, hy], [hx + hw, hy],
+      [hx + hw, hy + hh / 2],
+      [hx + hw, hy + hh], [hx + hw / 2, hy + hh], [hx, hy + hh],
+      [hx, hy + hh / 2],
+    ];
+  }
+  for (const [px, py] of handles) {
+    ctx.fillRect(px - hs, py - hs, hs * 2, hs * 2);
+    ctx.strokeRect(px - hs, py - hs, hs * 2, hs * 2);
+  }
+}
+
 function drawAnnotations() {
   const imgData = imgState.images[imgState.currentIndex];
   if (!imgData) return;
   const scale = canvas._scale || 1;
 
   for (let i = 0; i < imgData.annotations.length; i++) {
-    const ann = imgData.annotations[i];
-    const x = ann.x * scale, y = ann.y * scale;
-    const bw = ann.width * scale, bh = ann.height * scale;
-    ctx.strokeStyle = "#00ff00";
-    ctx.lineWidth = i === imgState.selectedAnnotation ? 3 : 2;
-    ctx.strokeRect(x, y, bw, bh);
+    _drawAnnotationShape(imgData.annotations[i], scale, "#00ff00", i === imgState.selectedAnnotation ? 3 : 2);
   }
 
   if (imgState.selectedAnnotation >= 0 && imgState.selectedAnnotation < imgData.annotations.length) {
-    const ann = imgData.annotations[imgState.selectedAnnotation];
-    const hs = 6;
-    ctx.fillStyle = "#fff";
-    ctx.strokeStyle = "#ffcc00";
-    ctx.lineWidth = 2;
-    const hx = ann.x * scale, hy = ann.y * scale;
-    const hw = ann.width * scale, hh = ann.height * scale;
-    const hp = [
-      [hx, hy], [hx + hw / 2, hy], [hx + hw, hy],
-      [hx + hw, hy + hh / 2],
-      [hx + hw, hy + hh], [hx + hw / 2, hy + hh], [hx, hy + hh],
-      [hx, hy + hh / 2],
-    ];
-    for (const [px, py] of hp) {
-      ctx.fillRect(px - hs, py - hs, hs * 2, hs * 2);
-      ctx.strokeRect(px - hs, py - hs, hs * 2, hs * 2);
-    }
+    _drawSelectionHandles(imgData.annotations[imgState.selectedAnnotation], scale);
   }
 
+  // Drawing preview
   if (imgState.currentRect) {
     ctx.strokeStyle = "#ff0000";
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 3]);
     const r = imgState.currentRect;
-    ctx.strokeRect(r.x, r.y, r.w, r.h);
+    if (imgState.shapeMode === "circle") {
+      ctx.beginPath();
+      ctx.ellipse(r.x + r.w / 2, r.y + r.h / 2, Math.abs(r.w / 2), Math.abs(r.h / 2), 0, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+    }
     ctx.setLineDash([]);
+  }
+
+  // Polygon drawing preview
+  if (imgState.shapeMode === "polygon" && imgState.polygonPoints.length > 0) {
+    ctx.strokeStyle = "#ff0000";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    ctx.moveTo(imgState.polygonPoints[0].x, imgState.polygonPoints[0].y);
+    for (let k = 1; k < imgState.polygonPoints.length; k++) {
+      ctx.lineTo(imgState.polygonPoints[k].x, imgState.polygonPoints[k].y);
+    }
+    ctx.lineTo(imgState.polygonCursorX, imgState.polygonCursorY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Vertices
+    ctx.fillStyle = "#ff0000";
+    for (const p of imgState.polygonPoints) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 
@@ -568,34 +676,63 @@ function renderCurrentFrame() {
 
 // ── Canvas mouse events ──
 
-const HANDLE_HIT_RADIUS = 10;
-
-function hitTestHandles(cx, cy, x, y, w, h) {
-  const r = HANDLE_HIT_RADIUS;
-  const mids = [
-    ['nw', x, y], ['n', x + w / 2, y], ['ne', x + w, y],
-    ['e', x + w, y + h / 2],
-    ['se', x + w, y + h], ['s', x + w / 2, y + h], ['sw', x, y + h],
-    ['w', x, y + h / 2],
-  ];
-  for (const [dir, hx, hy] of mids) {
-    if (Math.abs(cx - hx) <= r && Math.abs(cy - hy) <= r) return dir;
-  }
-  return null;
-}
-
-function getAnnotationAt(cx, cy, annotations, scale) {
-  for (let i = annotations.length - 1; i >= 0; i--) {
-    const a = annotations[i];
-    const ax = a.x * scale, ay = a.y * scale;
-    if (cx >= ax && cx <= ax + a.width * scale && cy >= ay && cy <= ay + a.height * scale) return i;
-  }
-  return -1;
-}
-
 function cursorForHandle(dir) {
   const map = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize' };
   return map[dir] || 'default';
+}
+
+function _pointInPolygon(px, py, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function _hitTestAnnotation(cx, cy, ann, scale) {
+  const t = ann.type || "rect";
+  if (t === "circle") {
+    const acx = (ann.x + ann.width / 2) * scale;
+    const acy = (ann.y + ann.height / 2) * scale;
+    const rx = (ann.width / 2) * scale;
+    const ry = (ann.height / 2) * scale;
+    return ((cx - acx) / rx) ** 2 + ((cy - acy) / ry) ** 2 <= 1;
+  } else if (t === "polygon") {
+    const pts = (ann.points || []).map(p => ({ x: p.x * scale, y: p.y * scale }));
+    return pts.length >= 3 && _pointInPolygon(cx, cy, pts);
+  } else {
+    const ax = ann.x * scale, ay = ann.y * scale;
+    return cx >= ax && cx <= ax + ann.width * scale && cy >= ay && cy <= ann.height * scale;
+  }
+}
+
+function _getBoundingBoxCorners(ann, scale) {
+  const t = ann.type || "rect";
+  const hs = 10; // hit radius
+  const hx = ann.x * scale, hy = ann.y * scale;
+  const hw = ann.width * scale, hh = ann.height * scale;
+
+  if (t === "circle") {
+    const cx = hx + hw / 2, cy = hy + hh / 2;
+    return [
+      ['n', cx, hy], ['s', cx, hy + hh],
+      ['w', hx, cy], ['e', hx + hw, cy],
+    ];
+  } else if (t === "polygon") {
+    const pts = ann.points || [];
+    return pts.map((p, i) => [`v${i}`, p.x * scale, p.y * scale]);
+  } else {
+    return [
+      ['nw', hx, hy], ['n', hx + hw / 2, hy], ['ne', hx + hw, hy],
+      ['e', hx + hw, hy + hh / 2],
+      ['se', hx + hw, hy + hh], ['s', hx + hw / 2, hy + hh], ['sw', hx, hy + hh],
+      ['w', hx, hy + hh / 2],
+    ];
+  }
 }
 
 canvas.addEventListener("mousedown", (e) => {
@@ -607,32 +744,58 @@ canvas.addEventListener("mousedown", (e) => {
   const imgData = imgState.images[imgState.currentIndex];
   if (!imgData) return;
 
+  // 1. Always check resize handles first (any mode)
   if (imgState.selectedAnnotation >= 0 && imgState.selectedAnnotation < imgData.annotations.length) {
     const ann = imgData.annotations[imgState.selectedAnnotation];
-    const hx = ann.x * scale, hy = ann.y * scale, hw = ann.width * scale, hh = ann.height * scale;
-    const handle = hitTestHandles(cx, cy, hx, hy, hw, hh);
-    if (handle) {
-      imgState.interactionMode = 'resize';
-      imgState.resizeHandle = handle;
+    const corners = _getBoundingBoxCorners(ann, scale);
+    for (const [handle, hx, hy] of corners) {
+      if (Math.abs(cx - hx) <= 10 && Math.abs(cy - hy) <= 10) {
+        imgState.interactionMode = 'resize';
+        imgState.resizeHandle = handle;
+        imgState.dragStartX = cx;
+        imgState.dragStartY = cy;
+        imgState.dragOrigAnn = JSON.parse(JSON.stringify(ann));
+        return;
+      }
+    }
+  }
+
+  // 2. Check if clicking on existing annotation (select + move)
+  for (let i = imgData.annotations.length - 1; i >= 0; i--) {
+    if (_hitTestAnnotation(cx, cy, imgData.annotations[i], scale)) {
+      imgState.selectedAnnotation = i;
+      imgState.interactionMode = 'move';
       imgState.dragStartX = cx;
       imgState.dragStartY = cy;
-      imgState.dragOrigAnn = { x: ann.x, y: ann.y, width: ann.width, height: ann.height };
+      imgState.dragOrigAnn = JSON.parse(JSON.stringify(imgData.annotations[i]));
+      renderCurrentFrame();
       return;
     }
   }
 
-  const annIdx = getAnnotationAt(cx, cy, imgData.annotations, scale);
-  if (annIdx >= 0) {
-    imgState.selectedAnnotation = annIdx;
-    imgState.interactionMode = 'move';
-    imgState.dragStartX = cx;
-    imgState.dragStartY = cy;
-    const ann = imgData.annotations[annIdx];
-    imgState.dragOrigAnn = { x: ann.x, y: ann.y, width: ann.width, height: ann.height };
+  // 3. Polygon mode: start or continue drawing
+  if (imgState.shapeMode === "polygon" && imgState.interactionMode !== 'move' && imgState.interactionMode !== 'resize') {
+    if (imgState.polygonPoints.length > 0) {
+      // Actively drawing — close on first vertex hit, else add vertex
+      if (imgState.polygonPoints.length >= 3) {
+        const first = imgState.polygonPoints[0];
+        const dist = Math.sqrt((cx - first.x) ** 2 + (cy - first.y) ** 2);
+        if (dist < 12) {
+          _closePolygon(imgData);
+          return;
+        }
+      }
+      imgState.polygonPoints.push({ x: cx, y: cy });
+      renderCurrentFrame();
+      return;
+    }
+    // Start new polygon on empty space
+    imgState.polygonPoints.push({ x: cx, y: cy });
     renderCurrentFrame();
     return;
   }
 
+  // 4. Start new rect / circle drawing
   imgState.selectedAnnotation = -1;
   imgState.isDrawing = true;
   imgState.interactionMode = 'draw';
@@ -649,6 +812,14 @@ canvas.addEventListener("mousemove", (e) => {
   const scale = canvas._scale || 1;
   const imgData = imgState.images[imgState.currentIndex];
   if (!imgData) return;
+
+  // Polygon cursor tracking during drawing
+  if (imgState.shapeMode === "polygon" && imgState.interactionMode !== 'move' && imgState.interactionMode !== 'resize') {
+    imgState.polygonCursorX = cx;
+    imgState.polygonCursorY = cy;
+    renderCurrentFrame();
+    return;
+  }
 
   if (imgState.interactionMode === 'draw') {
     imgState.currentRect = {
@@ -667,8 +838,17 @@ canvas.addEventListener("mousemove", (e) => {
     const orig = imgState.dragOrigAnn;
     const ann = imgData.annotations[imgState.selectedAnnotation];
     if (ann) {
-      ann.x = Math.round(Math.max(0, orig.x + dx));
-      ann.y = Math.round(Math.max(0, orig.y + dy));
+      if ((ann.type || "rect") === "polygon" && ann.points) {
+        ann.points = orig.points.map((p, i) => ({
+          x: Math.round(Math.max(0, p.x + dx)),
+          y: Math.round(Math.max(0, p.y + dy)),
+        }));
+        ann.x = Math.round(Math.max(0, orig.x + dx));
+        ann.y = Math.round(Math.max(0, orig.y + dy));
+      } else {
+        ann.x = Math.round(Math.max(0, orig.x + dx));
+        ann.y = Math.round(Math.max(0, orig.y + dy));
+      }
       renderCurrentFrame();
     }
     return;
@@ -680,17 +860,40 @@ canvas.addEventListener("mousemove", (e) => {
     const orig = imgState.dragOrigAnn;
     const ann = imgData.annotations[imgState.selectedAnnotation];
     if (!ann) return;
+    const t = ann.type || "rect";
+
+    if (t === "polygon" && ann.points) {
+      const vi = parseInt(imgState.resizeHandle.replace("v", ""));
+      if (!isNaN(vi) && vi >= 0 && vi < ann.points.length) {
+        ann.points[vi] = {
+          x: Math.round(Math.max(0, orig.points[vi].x + dx)),
+          y: Math.round(Math.max(0, orig.points[vi].y + dy)),
+        };
+        _recomputePolygonBounds(ann);
+        renderCurrentFrame();
+        return;
+      }
+    }
 
     let x = orig.x, y = orig.y, w2 = orig.width, h2 = orig.height;
-    switch (imgState.resizeHandle) {
-      case 'nw': x = orig.x + dx; y = orig.y + dy; w2 = orig.width - dx; h2 = orig.height - dy; break;
-      case 'n':  y = orig.y + dy; h2 = orig.height - dy; break;
-      case 'ne': y = orig.y + dy; w2 = orig.width + dx; h2 = orig.height - dy; break;
-      case 'e':  w2 = orig.width + dx; break;
-      case 'se': w2 = orig.width + dx; h2 = orig.height + dy; break;
-      case 's':  h2 = orig.height + dy; break;
-      case 'sw': x = orig.x + dx; w2 = orig.width - dx; h2 = orig.height + dy; break;
-      case 'w':  x = orig.x + dx; w2 = orig.width - dx; break;
+    if (t === "circle") {
+      switch (imgState.resizeHandle) {
+        case 'n': y = orig.y + dy; h2 = orig.height - dy; break;
+        case 's': h2 = orig.height + dy; break;
+        case 'w': x = orig.x + dx; w2 = orig.width - dx; break;
+        case 'e': w2 = orig.width + dx; break;
+      }
+    } else {
+      switch (imgState.resizeHandle) {
+        case 'nw': x = orig.x + dx; y = orig.y + dy; w2 = orig.width - dx; h2 = orig.height - dy; break;
+        case 'n':  y = orig.y + dy; h2 = orig.height - dy; break;
+        case 'ne': y = orig.y + dy; w2 = orig.width + dx; h2 = orig.height - dy; break;
+        case 'e':  w2 = orig.width + dx; break;
+        case 'se': w2 = orig.width + dx; h2 = orig.height + dy; break;
+        case 's':  h2 = orig.height + dy; break;
+        case 'sw': x = orig.x + dx; w2 = orig.width - dx; h2 = orig.height + dy; break;
+        case 'w':  x = orig.x + dx; w2 = orig.width - dx; break;
+      }
     }
     if (w2 < 3) { w2 = 3; if (imgState.resizeHandle === 'nw' || imgState.resizeHandle === 'sw' || imgState.resizeHandle === 'w') x = orig.x + orig.width - 3; }
     if (h2 < 3) { h2 = 3; if (imgState.resizeHandle === 'nw' || imgState.resizeHandle === 'ne' || imgState.resizeHandle === 'n') y = orig.y + orig.height - 3; }
@@ -704,15 +907,75 @@ canvas.addEventListener("mousemove", (e) => {
 
   if (imgState.selectedAnnotation >= 0 && imgState.selectedAnnotation < imgData.annotations.length) {
     const ann = imgData.annotations[imgState.selectedAnnotation];
-    const ax = ann.x * scale, ay = ann.y * scale, aw = ann.width * scale, ah = ann.height * scale;
-    const h = hitTestHandles(cx, cy, ax, ay, aw, ah);
-    if (h) { canvas.style.cursor = cursorForHandle(h); return; }
+    const corners = _getBoundingBoxCorners(ann, scale);
+    for (const [handle, hx, hy] of corners) {
+      if (Math.abs(cx - hx) <= 10 && Math.abs(cy - hy) <= 10) {
+        canvas.style.cursor = handle.startsWith("v") ? "pointer" : cursorForHandle(handle);
+        return;
+      }
+    }
   }
-  const idx = getAnnotationAt(cx, cy, imgData.annotations, scale);
-  canvas.style.cursor = idx >= 0 ? 'move' : 'default';
+  for (let i = imgData.annotations.length - 1; i >= 0; i--) {
+    if (_hitTestAnnotation(cx, cy, imgData.annotations[i], scale)) {
+      canvas.style.cursor = 'move';
+      return;
+    }
+  }
+  canvas.style.cursor = 'default';
 });
 
+function _closePolygon(imgData) {
+  const scale = canvas._scale || 1;
+  const pts = imgState.polygonPoints.map(p => ({
+    x: Math.round(p.x / scale),
+    y: Math.round(p.y / scale),
+  }));
+  if (pts.length < 3) return;
+
+  // Compute bounding box
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of pts) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+
+  const idx = imgData.annotations.length;
+  imgData.annotations.push({
+    type: "polygon",
+    points: pts,
+    x: minX, y: minY,
+    width: maxX - minX, height: maxY - minY,
+  });
+  imgState.selectedAnnotation = idx;
+  imgState.polygonPoints = [];
+  imgState.interactionMode = 'idle';
+  updateBoxCount();
+  updateImageList();
+  renderCurrentFrame();
+}
+
+function _recomputePolygonBounds(ann) {
+  if (!ann.points || ann.points.length === 0) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of ann.points) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  ann.x = minX;
+  ann.y = minY;
+  ann.width = maxX - minX;
+  ann.height = maxY - minY;
+}
+
 canvas.addEventListener("mouseup", () => {
+  if (imgState.shapeMode === "polygon" && imgState.polygonPoints.length > 0 && imgState.interactionMode !== 'move' && imgState.interactionMode !== 'resize') {
+    return; // vertices added on mousedown
+  }
+
   if (imgState.interactionMode === 'draw') {
     imgState.isDrawing = false;
     const r = imgState.currentRect;
@@ -721,12 +984,15 @@ canvas.addEventListener("mouseup", () => {
       const imgData = imgState.images[imgState.currentIndex];
       if (imgData) {
         const idx = imgData.annotations.length;
-        imgData.annotations.push({
-          x: Math.round(r.x / scale),
-          y: Math.round(r.y / scale),
-          width: Math.round(r.w / scale),
-          height: Math.round(r.h / scale),
-        });
+        const x = Math.round(r.x / scale);
+        const y = Math.round(r.y / scale);
+        const w = Math.round(r.w / scale);
+        const h = Math.round(r.h / scale);
+        if (imgState.shapeMode === "circle") {
+          imgData.annotations.push({ type: "circle", x, y, width: w, height: h });
+        } else {
+          imgData.annotations.push({ x, y, width: w, height: h });
+        }
         imgState.selectedAnnotation = idx;
         updateBoxCount();
         updateImageList();
@@ -748,8 +1014,20 @@ canvas.addEventListener("mouseup", () => {
   }
 });
 
+canvas.addEventListener("dblclick", (e) => {
+  if (imgState.shapeMode === "polygon" && imgState.polygonPoints.length >= 3) {
+    const imgData = imgState.images[imgState.currentIndex];
+    if (imgData) _closePolygon(imgData);
+  }
+});
+
 canvas.addEventListener("mouseleave", () => {
   if (imgState.interactionMode !== 'idle') {
+    if (imgState.shapeMode === "polygon" && imgState.polygonPoints.length > 0) {
+      // Keep polygon points but stop tracking cursor
+      renderCurrentFrame();
+      return;
+    }
     imgState.currentRect = null;
     imgState.isDrawing = false;
     imgState.interactionMode = 'idle';
