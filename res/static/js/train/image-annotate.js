@@ -557,6 +557,8 @@ function _drawAnnotationShape(ann, scale, strokeColor, lineWidth) {
     ctx.beginPath();
     ctx.ellipse(cx, cy, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.fillStyle = "rgba(0,255,0,0.08)";
+    ctx.fill();
   } else if (t === "polygon") {
     const pts = ann.points || [];
     if (pts.length < 2) return;
@@ -572,6 +574,8 @@ function _drawAnnotationShape(ann, scale, strokeColor, lineWidth) {
   } else {
     const x = ann.x * scale, y = ann.y * scale;
     const bw = ann.width * scale, bh = ann.height * scale;
+    ctx.fillStyle = "rgba(0,255,0,0.08)";
+    ctx.fillRect(x, y, bw, bh);
     ctx.strokeRect(x, y, bw, bh);
   }
 }
@@ -700,13 +704,14 @@ function _hitTestAnnotation(cx, cy, ann, scale) {
     const acy = (ann.y + ann.height / 2) * scale;
     const rx = (ann.width / 2) * scale;
     const ry = (ann.height / 2) * scale;
-    return ((cx - acx) / rx) ** 2 + ((cy - acy) / ry) ** 2 <= 1;
+    return ((cx - acx) / rx) ** 2 + ((cy - acy) / ry) ** 2 <= 1.02;
   } else if (t === "polygon") {
     const pts = (ann.points || []).map(p => ({ x: p.x * scale, y: p.y * scale }));
     return pts.length >= 3 && _pointInPolygon(cx, cy, pts);
   } else {
+    const tol = 2;
     const ax = ann.x * scale, ay = ann.y * scale;
-    return cx >= ax && cx <= ax + ann.width * scale && cy >= ay && cy <= ann.height * scale;
+    return cx >= ax - tol && cx <= ax + ann.width * scale + tol && cy >= ay - tol && cy <= ay + ann.height * scale + tol;
   }
 }
 
@@ -773,10 +778,9 @@ canvas.addEventListener("mousedown", (e) => {
     }
   }
 
-  // 3. Polygon mode: start or continue drawing
-  if (imgState.shapeMode === "polygon" && imgState.interactionMode !== 'move' && imgState.interactionMode !== 'resize') {
+  // 3. Polygon mode
+  if (imgState.shapeMode === "polygon") {
     if (imgState.polygonPoints.length > 0) {
-      // Actively drawing — close on first vertex hit, else add vertex
       if (imgState.polygonPoints.length >= 3) {
         const first = imgState.polygonPoints[0];
         const dist = Math.sqrt((cx - first.x) ** 2 + (cy - first.y) ** 2);
@@ -789,13 +793,19 @@ canvas.addEventListener("mousedown", (e) => {
       renderCurrentFrame();
       return;
     }
-    // Start new polygon on empty space
+    // No active polygon — deselect if something is selected
+    if (imgState.selectedAnnotation >= 0) {
+      imgState.selectedAnnotation = -1;
+      renderCurrentFrame();
+      return;
+    }
+    // Start new polygon
     imgState.polygonPoints.push({ x: cx, y: cy });
     renderCurrentFrame();
     return;
   }
 
-  // 4. Start new rect / circle drawing
+  // 4. Start new shape drawing
   imgState.selectedAnnotation = -1;
   imgState.isDrawing = true;
   imgState.interactionMode = 'draw';
@@ -813,12 +823,10 @@ canvas.addEventListener("mousemove", (e) => {
   const imgData = imgState.images[imgState.currentIndex];
   if (!imgData) return;
 
-  // Polygon cursor tracking during drawing
+  // Track polygon cursor position (for preview line) — always runs in polygon mode
   if (imgState.shapeMode === "polygon" && imgState.interactionMode !== 'move' && imgState.interactionMode !== 'resize') {
     imgState.polygonCursorX = cx;
     imgState.polygonCursorY = cy;
-    renderCurrentFrame();
-    return;
   }
 
   if (imgState.interactionMode === 'draw') {
@@ -911,6 +919,7 @@ canvas.addEventListener("mousemove", (e) => {
     for (const [handle, hx, hy] of corners) {
       if (Math.abs(cx - hx) <= 10 && Math.abs(cy - hy) <= 10) {
         canvas.style.cursor = handle.startsWith("v") ? "pointer" : cursorForHandle(handle);
+        if (imgState.polygonPoints.length > 0) { renderCurrentFrame(); }
         return;
       }
     }
@@ -918,10 +927,15 @@ canvas.addEventListener("mousemove", (e) => {
   for (let i = imgData.annotations.length - 1; i >= 0; i--) {
     if (_hitTestAnnotation(cx, cy, imgData.annotations[i], scale)) {
       canvas.style.cursor = 'move';
+      if (imgState.polygonPoints.length > 0) { renderCurrentFrame(); }
       return;
     }
   }
   canvas.style.cursor = 'default';
+
+  if (imgState.polygonPoints.length > 0) {
+    renderCurrentFrame();
+  }
 });
 
 function _closePolygon(imgData) {
