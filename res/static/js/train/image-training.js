@@ -1,19 +1,212 @@
 let imgPollInterval = null;
 let imgModelRefreshInterval = null;
-let testGalleryState = { testImageIds: [], predictionsMap: {}, currentIndex: 0 };
+let testGalleryState = { imageIds: [], predictionsMap: {}, currentIndex: 0 };
+
+const imgDualSlider = document.getElementById("imgDualSlider");
+const imgThumbTrain = document.getElementById("imgThumbTrain");
+const imgThumbTest = document.getElementById("imgThumbTest");
+const imgFillTrain = document.getElementById("imgFillTrain");
+const imgFillVal = document.getElementById("imgFillVal");
+const imgFillTest = document.getElementById("imgFillTest");
+const imgCountTrain = document.getElementById("imgCountTrain");
+const imgCountVal = document.getElementById("imgCountVal");
+const imgCountTest = document.getElementById("imgCountTest");
+
+const IMG_DETECTOR_DEFAULTS = {
+  anchor_mode: "fixed",
+  center_x: 0.52,
+  center_y: 0.51,
+  radius: 0.5,
+  radius_min: 0.42,
+  radius_max: 0.61,
+};
+
+const imgAnchorMode = document.getElementById("imgAnchorMode");
+
+function imgNumber(id, fallback) {
+  const value = parseFloat(document.getElementById(id)?.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function imgDetectorConfig() {
+  return {
+    anchor_mode: imgAnchorMode ? imgAnchorMode.value : IMG_DETECTOR_DEFAULTS.anchor_mode,
+    center_x: imgNumber("imgAnchorCenterX", IMG_DETECTOR_DEFAULTS.center_x),
+    center_y: imgNumber("imgAnchorCenterY", IMG_DETECTOR_DEFAULTS.center_y),
+    radius: imgNumber("imgAnchorRadius", IMG_DETECTOR_DEFAULTS.radius),
+    radius_min: imgNumber("imgHoughRadiusMin", IMG_DETECTOR_DEFAULTS.radius_min),
+    radius_max: imgNumber("imgHoughRadiusMax", IMG_DETECTOR_DEFAULTS.radius_max),
+  };
+}
+
+function imgSplitPercentages() {
+  const readLeft = (element, fallback) => {
+    const value = parseFloat(element && element.style.left);
+    return Number.isFinite(value) ? value : fallback;
+  };
+  const train = Math.min(100, Math.max(0, readLeft(imgThumbTrain, 70)));
+  const testStart = Math.min(100, Math.max(train, readLeft(imgThumbTest, 85)));
+  return { train, val: Math.max(0, testStart - train), test: Math.max(0, 100 - testStart) };
+}
+
+function imgSplitCounts(total, valPct, testPct) {
+  if (total <= 0) return { train: 0, val: 0, test: 0 };
+
+  // Largest-remainder apportionment over exact integer units, so floating
+  // point noise cannot decide which split gets a leftover image.  When two
+  // shares have the same remainder, Train wins first, then Validation, then Test.
+  const basis = 1000000;
+  const pcts = [
+    Math.max(0, Math.round((100 - valPct - testPct) * basis / 100)),
+    Math.max(0, Math.round(valPct * basis / 100)),
+    Math.max(0, Math.round(testPct * basis / 100)),
+  ];
+  const products = pcts.map(pct => total * pct);
+  const counts = products.map(product => Math.floor(product / basis));
+  const remainders = products.map(product => product % basis);
+  const order = [0, 1, 2].sort((a, b) => {
+    const diff = remainders[b] - remainders[a];
+    return diff !== 0 ? diff : a - b;
+  });
+  const left = total - counts.reduce((sum, value) => sum + value, 0);
+  for (let i = 0; i < left; i++) counts[order[i]] += 1;
+
+  function ensureOne(target, donors, minimumTotal) {
+    if (total < minimumTotal || pcts[target] <= 0 || counts[target] > 0) return;
+    for (const donor of donors) {
+      if (donor !== target && counts[donor] > (donor === 0 ? 1 : 0)) {
+        counts[donor] -= 1;
+        counts[target] += 1;
+        return;
+      }
+    }
+  }
+
+  // Training must keep at least one image whenever the dataset allows it.
+  ensureOne(0, [2, 1], 1);
+  // Test is the locked check set, so keep one image there when possible.
+  ensureOne(2, [0, 1], 2);
+  // Then keep a validation image when there is room for all three splits.
+  ensureOne(1, [0, 2], 3);
+
+  return { train: counts[0], val: counts[1], test: counts[2] };
+}
+
+// Test images are the LAST part of the list, just like the old workflow.
+// This also makes drag-reordering a way to choose which images are test images.
+function syncImgSplitState() {
+  const total = imgState.images.length;
+  const p = imgSplitPercentages();
+  const c = imgSplitCounts(total, p.val, p.test);
+  const testStart = total - c.test;
+  const valStart = testStart - c.val;
+  imgState.images.forEach((img, index) => {
+    img.split = index >= testStart ? "test" : (index >= valStart ? "val" : "train");
+    img.locked = img.split === "test";
+  });
+  return c;
+}
+
+function updateImgSplitBar() {
+  if (!imgDualSlider) return;
+  const p = imgSplitPercentages();
+  imgFillTrain.style.width = p.train + "%";
+  imgFillTrain.textContent = Math.round(p.train) + "%";
+  imgFillVal.style.width = p.val + "%";
+  imgFillVal.textContent = Math.round(p.val) + "%";
+  imgFillTest.style.width = p.test + "%";
+  imgFillTest.textContent = Math.round(p.test) + "%";
+}
+
+function updateImgSplitCounts() {
+  const c = syncImgSplitState();
+  const total = imgState.images.length;
+  const set = (element, value) => {
+    if (element) element.textContent = total ? value : "";
+  };
+  set(imgCountTrain, c.train);
+  set(imgCountVal, c.val);
+  set(imgCountTest, c.test);
+}
+
+function refreshImgSplitUI() {
+  updateImgSplitBar();
+  updateImgSplitCounts();
+  const current = imgState.images[imgState.currentIndex];
+  if (current && current.locked) {
+    for (let i = imgState.images.length - 1; i >= 0; i--) {
+      if (!imgState.images[i].locked) {
+        selectImage(i);
+        return;
+      }
+    }
+  }
+  updateImageList();
+}
+
+(function initImgSplitSlider() {
+  if (!imgDualSlider || !imgThumbTrain || !imgThumbTest) return;
+  let activeThumb = null;
+
+  function posFromEvent(e) {
+    const point = e.touches && e.touches[0] ? e.touches[0] : e;
+    const rect = imgDualSlider.getBoundingClientRect();
+    return ((point.clientX - rect.left) / rect.width) * 100;
+  }
+
+  function moveThumb(e) {
+    if (!activeThumb) return;
+    let pct = Math.max(5, Math.min(95, posFromEvent(e)));
+    const startValue = parseFloat(imgThumbTrain.style.left);
+    const endValue = parseFloat(imgThumbTest.style.left);
+    const start = Number.isFinite(startValue) ? startValue : 70;
+    const end = Number.isFinite(endValue) ? endValue : 85;
+    if (activeThumb === imgThumbTrain) pct = Math.min(pct, end - 5);
+    else pct = Math.max(pct, start + 5);
+    activeThumb.style.left = Math.round(pct) + "%";
+    refreshImgSplitUI();
+  }
+
+  function stopDrag() {
+    activeThumb = null;
+    document.removeEventListener("mousemove", moveThumb);
+    document.removeEventListener("mouseup", stopDrag);
+    document.removeEventListener("touchmove", moveThumb);
+    document.removeEventListener("touchend", stopDrag);
+  }
+
+  function startDrag(thumb) {
+    return (e) => {
+      e.preventDefault();
+      activeThumb = thumb;
+      document.addEventListener("mousemove", moveThumb);
+      document.addEventListener("mouseup", stopDrag);
+      document.addEventListener("touchmove", moveThumb, { passive: false });
+      document.addEventListener("touchend", stopDrag);
+    };
+  }
+
+  imgThumbTrain.addEventListener("mousedown", startDrag(imgThumbTrain));
+  imgThumbTest.addEventListener("mousedown", startDrag(imgThumbTest));
+  imgThumbTrain.addEventListener("touchstart", startDrag(imgThumbTrain), { passive: false });
+  imgThumbTest.addEventListener("touchstart", startDrag(imgThumbTest), { passive: false });
+})();
+
+updateImgSplitBar();
+updateImgSplitCounts();
 
 imgModelFilter.addEventListener("input", () => {
   loadImageModels();
 });
 
-// ── Image Models ──
+// ── Saved image models ──
 
 async function loadImageModels() {
   try {
     const data = await api("/api/models?type=image");
     renderImageModels(data || []);
   } catch (err) {
-    imgModelList.innerHTML = `<li class="model-empty">Error: ${err.message}</li>`;
+    imgModelList.innerHTML = `<li class="model-empty">${t("error_prefix")}: ${err.message}</li>`;
   }
 }
 
@@ -27,6 +220,7 @@ function renderImageModels(models) {
     imgModelList.innerHTML = `<li class="model-empty">${t("no_models")}</li>`;
     return;
   }
+
   for (const item of filtered) {
     const li = document.createElement("li");
     li.className = "model-item";
@@ -64,10 +258,9 @@ function renderImageModels(models) {
           alert(t("no_stats"));
           return;
         }
-        const lines = Object.entries(metrics).map(([k, v]) => `${k}: ${v}`);
-        alert(lines.join("\n"));
+        alert(Object.entries(metrics).map(([k, v]) => `${k}: ${v}`).join("\n"));
       } catch (e) {
-        alert("Error: " + e.message);
+        alert(t("error_prefix") + ": " + e.message);
       }
     });
 
@@ -88,7 +281,7 @@ function renderImageModels(models) {
         });
         await loadImageModels();
       } catch (err) {
-        alert("Error: " + err.message);
+        alert(t("error_prefix") + ": " + err.message);
       }
     });
 
@@ -98,8 +291,8 @@ function renderImageModels(models) {
     delBtn.textContent = t("delete");
     delBtn.addEventListener("click", async () => {
       if (!requireAdmin()) return;
-      const delDisplay = item.stem || item.name;
-      if (!confirm(t("delete_confirm").replace("{name}", delDisplay))) return;
+      const displayName = item.stem || item.name;
+      if (!confirm(t("delete_confirm").replace("{name}", displayName))) return;
       try {
         await api("/api/models/delete", {
           method: "POST",
@@ -107,7 +300,7 @@ function renderImageModels(models) {
         });
         await loadImageModels();
       } catch (err) {
-        alert("Error: " + err.message);
+        alert(t("error_prefix") + ": " + err.message);
       }
     });
 
@@ -115,7 +308,6 @@ function renderImageModels(models) {
     actions.appendChild(statsBtn);
     actions.appendChild(renameBtn);
     actions.appendChild(delBtn);
-
     li.appendChild(meta);
     li.appendChild(actions);
     imgModelList.appendChild(li);
@@ -127,73 +319,22 @@ function startImageModelRefresh() {
   imgModelRefreshInterval = setInterval(loadImageModels, 30000);
 }
 
-// ── Image validation (Task 1) ──
-
-function validateNumberInput(input) {
-  input.classList.remove("is-invalid");
-  const min = parseFloat(input.min);
-  const max = parseFloat(input.max);
-  const val = parseFloat(input.value);
-  if (input.value === "" || isNaN(val) || (!isNaN(min) && val < min) || (!isNaN(max) && val > max)) {
-    input.classList.add("is-invalid");
-    return false;
-  }
-  return true;
-}
-
-function validateImgParams() {
-  let valid = true;
-  for (const input of imgHyperParams.querySelectorAll("input[type=number]")) {
-    if (!validateNumberInput(input)) valid = false;
-  }
-  for (const id of ["imgPatchSize", "imgNegPerAnn", "imgRandomSeed", "imgKFolds", "imgIouConf", "imgIouNms", "imgFeatureSize"]) {
-    const el = document.getElementById(id);
-    if (el && el.type === "number" && !el.disabled && !validateNumberInput(el)) valid = false;
-  }
-  return valid;
-}
-
-// ── Live validation on input ──
-imgHyperParams.addEventListener("input", (e) => {
-  if (e.target.type === "number") validateNumberInput(e.target);
-});
-for (const id of ["imgPatchSize", "imgNegPerAnn", "imgRandomSeed", "imgKFolds", "imgIouConf", "imgIouNms", "imgFeatureSize"]) {
-  const el = document.getElementById(id);
-  if (el && el.type === "number") el.addEventListener("input", () => validateNumberInput(el));
-}
-
-// Checkbox enables/disables its linked input
-function bindEnableToggle(cbId, selector) {
-  const cb = document.getElementById(cbId);
-  const input = document.getElementById(selector) || document.querySelector(`[name="${selector}"]`);
-  if (cb && input) {
-    const toggle = () => { input.disabled = !cb.checked; };
-    cb.addEventListener("change", toggle);
-    toggle();
-  }
-}
-document.addEventListener("DOMContentLoaded", () => {
-  bindEnableToggle("imgUsePatchSize", "imgPatchSize");
-  bindEnableToggle("imgUseNeg", "imgNegPerAnn");
-  bindEnableToggle("imgUseShuffle", "imgRandomSeed");
-  bindEnableToggle("imgUseIouConf", "imgIouConf");
-  bindEnableToggle("imgUseIouNms", "imgIouNms");
-  bindEnableToggle("imgUseFeatureSize", "imgFeatureSize");
-  bindEnableToggle("csvUseShuffle", "random_state");
-});
-
-// ── Image Training ──
+// ── Train ──
 
 imgTrainBtn.addEventListener("click", async () => {
-  const hasAnnotations = imgState.images.some(img => img.annotations.length > 0);
-  if (!hasAnnotations) {
-    alert(t("img_no_annotations") || "Please annotate at least one object on at least one image.");
+  // Recalculate the split from the current image order.  The last images are
+  // the locked TEST set and must stay unannotated.
+  const splitCounts = syncImgSplitState();
+  const annotated = imgState.images.filter(img => !img.locked && img.annotations.length > 0);
+  const trainAnnotated = imgState.images.filter(img => img.split === "train" && img.annotations.length > 0);
+  if (annotated.length === 0 || trainAnnotated.length === 0) {
+    alert(t("img_no_annotations") || "Annotate the objects on at least one TRAIN image first. TEST images are locked on purpose.");
     return;
   }
 
-  // Validate parameter ranges — highlight invalid fields in red
-  if (!validateImgParams()) {
-    alert(t("validation_fix_highlighted") || "Fix the highlighted fields.");
+  const counts = new Set(trainAnnotated.map(img => img.annotations.length));
+  if (counts.size > 1) {
+    alert(t("img_same_box_count_train") || "Every annotated TRAIN image must have the same number of boxes. Fix the annotations first.");
     return;
   }
 
@@ -208,91 +349,48 @@ imgTrainBtn.addEventListener("click", async () => {
         imgData.serverId = result.image_id;
         imgData.uploaded = true;
       }
-
       await api("/api/image_train/annotations", {
         method: "POST",
         body: JSON.stringify({ image_id: imgData.serverId, annotations: imgData.annotations })
       });
     }
   } catch (err) {
-    imgAppendLog("ERROR: " + err.message);
+    imgAppendLog(t("error_prefix") + ": " + err.message);
     return;
   }
 
   imgTrainBtn.disabled = true;
   imgTrainBtn.textContent = (t("training") || "Training") + "...";
-  const imgCancelBtn = document.getElementById("imgCancelBtn");
-  imgCancelBtn.disabled = false;
-  imgCancelBtn.textContent = t("cancel_train") || "Cancel";
-  imgCancelBtn.style.display = "";
-  tuningBound = false;
+  const cancelBtn = document.getElementById("imgCancelBtn");
+  cancelBtn.disabled = false;
+  cancelBtn.textContent = t("cancel_train") || "Cancel";
+  cancelBtn.style.display = "";
   imgOutputSection.style.display = "";
+  imgOutputLog.textContent = "";
   imgResultsSection.style.display = "none";
-  imgPredSection.style.display = "none";
   imgTestGallerySection.style.display = "none";
-  imgTuningSection.style.display = "none";
 
-  const valStrategy = document.querySelector('input[name="img_val_strategy"]:checked').value;
-  const algorithm = imgAlgorithmSelect.value;
-  const useNeg = document.getElementById("imgUseNeg").checked;
-  const negRaw = document.getElementById("imgNegPerAnn").value;
-  const negPerAnn = useNeg ? (parseInt(negRaw) || 10) : 0;
-  const params = {};
-  for (const input of imgHyperParams.querySelectorAll("input, select")) {
-    const name = input.getAttribute("name");
-    if (name && name.startsWith("imgparam_")) {
-      params[name.replace("imgparam_", "")] = input.value;
-    }
-  }
-  const useShuffle = document.getElementById("imgUseShuffle").checked;
-  const shuffle = useShuffle;
-  const randomState = useShuffle ? (parseInt(document.getElementById("imgRandomSeed").value) || 42) : -1;
-
-  let valSize = 0, testSize = 0, kFolds = 5;
-  if (valStrategy === "simple") {
-    const t2 = parseFloat(imgThumbTrain.style.left || 70);
-    const e = parseFloat(imgThumbTest.style.left || 85);
-    testSize = (100 - e) / 100;
-    valSize = (e - t2) / 100;
-  } else {
-    kFolds = parseInt(imgKFolds.value) || 5;
-  }
+  const split = imgSplitPercentages();
+  const testIds = imgState.images.filter(im => im.locked && im.serverId).map(im => im.serverId);
+  const valIds = imgState.images.filter(im => im.split === "val" && im.serverId).map(im => im.serverId);
 
   try {
     await api("/api/image_train/start", {
       method: "POST",
       body: JSON.stringify({
-        val_strategy: valStrategy,
-        val_size: valSize,
-        test_size: testSize,
-        algorithm,
-        neg_per_ann: negPerAnn,
-        params,
-        shuffle,
-        random_state: randomState,
-        k_folds: kFolds,
-        patch_size: document.getElementById("imgUsePatchSize").checked
-          ? parseInt(document.getElementById("imgPatchSize").value) || 32
-          : 0,
-        grayscale: document.getElementById("imgUseGrayscale").checked,
-        feature_size: document.getElementById("imgUseFeatureSize").checked
-          ? parseInt(document.getElementById("imgFeatureSize").value) || 64
-          : 0,
-        iou_threshold_neg: document.getElementById("imgUseIouConf").checked
-          ? parseFloat(document.getElementById("imgIouConf").value) || 0.1
-          : 0,
-        iou_threshold_nms: document.getElementById("imgUseIouNms").checked
-          ? parseFloat(document.getElementById("imgIouNms").value) || 0.1
-          : 0,
-        brightness_contrast_jitter: document.getElementById("imgUseJitter").checked,
-        test_image_ids: imgState.images.filter(im => im.locked).map(im => im.serverId),
+        val_size: split.val / 100,
+        test_size: split.test / 100,
+        test_image_ids: testIds,
+        val_image_ids: valIds,
+        detector_config: imgDetectorConfig(),
       })
     });
     startImagePolling();
   } catch (err) {
-    imgAppendLog("ERROR: " + err.message);
+    imgAppendLog(t("error_prefix") + ": " + err.message);
     imgTrainBtn.disabled = false;
-    imgTrainBtn.textContent = t("img_train_btn") || "Train Detector";
+    imgTrainBtn.textContent = t("img_train_btn") || "Train detector";
+    cancelBtn.style.display = "none";
   }
 });
 
@@ -306,7 +404,7 @@ document.getElementById("imgCancelBtn").addEventListener("click", async () => {
   const btn = document.getElementById("imgCancelBtn");
   btn.disabled = true;
   btn.textContent = t("cancelling") || "Cancelling...";
-  imgAppendLog("Cancelling...");
+  imgAppendLog(t("cancelling"));
   try {
     await api("/api/image_train/cancel", { method: "POST", body: "{}" });
   } catch (_) {}
@@ -320,46 +418,42 @@ function startImagePolling() {
     try {
       const status = await api("/api/image_train/status");
       const log = status.log || [];
-
       if (log.length > lastLen) {
-        for (let i = lastLen; i < log.length; i++) {
-          imgAppendLog(log[i]);
-        }
+        for (let i = lastLen; i < log.length; i++) imgAppendLog(log[i]);
         lastLen = log.length;
       }
 
       if (status.status === "done") {
         clearInterval(imgPollInterval);
         imgPollInterval = null;
-        imgTrainBtn.disabled = false;
-        imgTrainBtn.textContent = t("img_train_btn") || "Train Detector";
-        document.getElementById("imgCancelBtn").style.display = "none";
+        resetTrainButton();
         showImageResults(status.metrics);
-        showImagePredictions(status.predictions);
-        const raw = status.raw_predictions || status.predictions || [];
-        showImageTuning(status.test_image_ids, raw);
+        showImageTestGallery(status.test_image_ids, status.predictions);
       } else if (status.status === "cancelled") {
         clearInterval(imgPollInterval);
         imgPollInterval = null;
-        imgTrainBtn.disabled = false;
-        imgTrainBtn.textContent = t("img_train_btn") || "Train Detector";
-        document.getElementById("imgCancelBtn").style.display = "none";
-        imgAppendLog("Training cancelled.");
+        resetTrainButton();
+        imgAppendLog(t("img_training_cancelled") || "Training cancelled.");
       } else if (status.status === "error") {
         clearInterval(imgPollInterval);
         imgPollInterval = null;
-        imgTrainBtn.disabled = false;
-        imgTrainBtn.textContent = t("img_train_btn") || "Train Detector";
-        document.getElementById("imgCancelBtn").style.display = "none";
-        imgAppendLog("ERROR: " + (status.error || "Unknown error"));
+        resetTrainButton();
+        imgAppendLog(t("error_prefix") + ": " + (status.error || t("unknown_error")));
+        alert(status.error || t("img_training_failed") || "Training failed");
       }
-    } catch (err) {
-      // ignore
+    } catch (_) {
+      // transient network error; keep polling
     }
   }, 500);
 }
 
-// ── Image Results ──
+function resetTrainButton() {
+  imgTrainBtn.disabled = false;
+  imgTrainBtn.textContent = t("img_train_btn") || "Train detector";
+  document.getElementById("imgCancelBtn").style.display = "none";
+}
+
+// ── Metrics ──
 
 function showImageResults(metrics) {
   if (!metrics) return;
@@ -367,82 +461,60 @@ function showImageResults(metrics) {
   imgMetricsDisplay.innerHTML = "";
 
   const labels = {
-    accuracy: "Training accuracy",
-    val_accuracy: "Validation accuracy",
-    samples: "Total samples",
-    positive_samples: "Positive",
-    negative_samples: "Negative",
-    annotations: "Annotations",
+    train_images: "img_metric_train_images",
+    train_annotated: "img_metric_train_annotated",
+    val_images: "img_metric_val_images",
+    val_annotated: "img_metric_val_annotated",
+    test_images: "img_metric_test_images",
+    images: "img_metric_images",
+    annotations: "img_metric_annotations",
+    boxes_per_image: "img_metric_boxes_per_image",
+    mean_iou: "img_metric_mean_iou",
+    val_mean_iou: "img_metric_val_mean_iou",
+    loo_mean_iou: "img_metric_loo_mean_iou",
   };
 
-  const skipKeys = new Set(["algorithm", "val_strategy", "task"]);
-  for (const [key, val] of Object.entries(metrics)) {
-    if (val !== undefined && val !== null && !skipKeys.has(key)) {
-      const div = document.createElement("div");
-      div.className = "metric-card";
-      div.innerHTML = `<strong>${labels[key] || key}</strong><span class="metric-value">${val}</span>`;
-      imgMetricsDisplay.appendChild(div);
-    }
+  const visible = Object.entries(metrics).filter(([, value]) => value !== undefined && value !== null);
+  setMetricColumns(imgMetricsDisplay, visible.length);
+  for (const [key, value] of visible) {
+    const div = document.createElement("div");
+    div.className = "metric-card";
+    const labelKey = labels[key];
+    const label = labelKey ? t(labelKey) : key;
+    div.innerHTML = `<strong>${label}</strong><span class="metric-value">${value}</span>`;
+    imgMetricsDisplay.appendChild(div);
   }
 
   enableImgResults();
 }
 
-function showImagePredictions(predictions) {
-  const filtered = predictions ? predictions.filter(p => !p.sliding_window) : [];
-  if (filtered.length === 0) return;
-  imgPredSection.style.display = "";
-  imgPredGrid.innerHTML = "";
-  const predLabel = (v) => v === 1
-    ? (t("img_pred_positive") || "Positive")
-    : (t("img_pred_negative") || "Negative");
-  for (const pred of filtered) {
-    const card = document.createElement("div");
-    const correct = pred.actual === pred.predicted;
-    card.className = "img-pred-card " + (correct ? "correct" : "incorrect");
-    card.innerHTML = `
-      <img src="data:image/png;base64,${pred.image}" alt="patch">
-      <span class="img-pred-label">${t("chart_actual") || "Actual"}: ${predLabel(pred.actual)}</span>
-      <span class="img-pred-label">${t("chart_predicted") || "Predicted"}: ${predLabel(pred.predicted)}</span>
-      <span class="img-pred-badge">${correct ? "✓" : "✗"}</span>
-    `;
-    imgPredGrid.appendChild(card);
-  }
-}
+// ── Locked TEST-set prediction gallery ──
 
-// ── Image Test Gallery ──
-
-function showImageTestGallery(testImageIds, predictions) {
-  if (!testImageIds || testImageIds.length === 0) return;
+function showImageTestGallery(imageIds, predictions) {
+  if (!imageIds || imageIds.length === 0) return;
   imgTestGallerySection.style.display = "";
-
-  const predMap = {};
-  if (predictions) {
-    for (const p of predictions) {
-      if (!predMap[p.image_id]) predMap[p.image_id] = [];
-      predMap[p.image_id].push(p);
-    }
-  }
-
-  testGalleryState.testImageIds = testImageIds;
-  testGalleryState.predictionsMap = predMap;
+  testGalleryState.imageIds = imageIds;
   testGalleryState.currentIndex = 0;
-
+  testGalleryState.predictionsMap = {};
+  for (const pred of (predictions || [])) {
+    if (!testGalleryState.predictionsMap[pred.image_id]) {
+      testGalleryState.predictionsMap[pred.image_id] = [];
+    }
+    testGalleryState.predictionsMap[pred.image_id].push(pred);
+  }
   renderTestGalleryImage(0);
   updateTestGalleryNav();
 }
 
 function renderTestGalleryImage(index) {
-  const imgId = testGalleryState.testImageIds[index];
-  if (!imgId) return;
-
-  const imgData = imgState.images.find(im => im.serverId === imgId);
+  const imageId = testGalleryState.imageIds[index];
+  if (!imageId) return;
+  const imgData = imgState.images.find(im => im.serverId === imageId);
   if (!imgData) return;
 
   testCanvasPlaceholder.style.display = "none";
   testGalleryCanvas.style.display = "";
 
-  const predictions = testGalleryState.predictionsMap[imgId] || [];
   const container = testGalleryCanvas.parentElement;
   const maxW = container.clientWidth - 4;
   const maxH = window.innerHeight * 0.6;
@@ -454,70 +526,33 @@ function renderTestGalleryImage(index) {
   testGalleryCanvas.height = ch;
   testGalleryCanvas.style.width = cw + "px";
   testGalleryCanvas.style.height = ch + "px";
-  testGalleryCanvas._scale = scale;
 
+  const predictions = testGalleryState.predictionsMap[imageId] || [];
   const img = new Image();
   img.onload = () => {
     testGalleryCtx.clearRect(0, 0, cw, ch);
     testGalleryCtx.drawImage(img, 0, 0, cw, ch);
-
-    if (predictions.length === 0) {
-      testGalleryCtx.fillStyle = "rgba(0,0,0,0.4)";
-      testGalleryCtx.font = "bold 16px sans-serif";
-      testGalleryCtx.textAlign = "center";
-      testGalleryCtx.textBaseline = "middle";
-      testGalleryCtx.fillText(t("test_no_detections") || "No objects detected", cw / 2, ch / 2);
-      return;
-    }
-
-    for (const pred of predictions) {
+    predictions.forEach((pred, i) => {
       const x = pred.x * scale;
       const y = pred.y * scale;
       const w = pred.w * scale;
       const h = pred.h * scale;
-
-      if (pred.sliding_window) {
-        testGalleryCtx.strokeStyle = "#22c55e";
-        testGalleryCtx.lineWidth = 2;
-        testGalleryCtx.strokeRect(x, y, w, h);
-        testGalleryCtx.fillStyle = "rgba(34,197,94,0.15)";
-        testGalleryCtx.fillRect(x, y, w, h);
-        const label = pred.confidence !== undefined
-          ? (pred.confidence * 100).toFixed(0) + "%"
-          : "D";
-        testGalleryCtx.fillStyle = "#22c55e";
-        testGalleryCtx.font = "bold 11px sans-serif";
-        testGalleryCtx.textBaseline = "top";
-        testGalleryCtx.fillText(label, x + 2, y + 2);
-      } else {
-        const correct = pred.actual === pred.predicted;
-        testGalleryCtx.strokeStyle = correct ? "#22c55e" : "#ef4444";
-        testGalleryCtx.lineWidth = 2;
-        testGalleryCtx.strokeRect(x, y, w, h);
-        testGalleryCtx.fillStyle = correct ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)";
-        testGalleryCtx.fillRect(x, y, w, h);
-        const label = correct
-          ? (pred.actual === 1 ? "TP" : "TN")
-          : (pred.actual === 1 ? "FN" : "FP");
-        testGalleryCtx.fillStyle = correct ? "#22c55e" : "#ef4444";
-        testGalleryCtx.font = "bold 11px sans-serif";
-        testGalleryCtx.textBaseline = "top";
-        testGalleryCtx.fillText(label, x + 2, y + 2);
-      }
-    }
-  };
-  img.onerror = () => {
-    testGalleryCtx.clearRect(0, 0, cw, ch);
-    testGalleryCtx.fillStyle = "#666";
-    testGalleryCtx.font = "14px sans-serif";
-    testGalleryCtx.textAlign = "center";
-    testGalleryCtx.fillText(t("test-canvas-hint") || "Image not available", cw / 2, ch / 2);
+      testGalleryCtx.strokeStyle = "#22c55e";
+      testGalleryCtx.lineWidth = 2;
+      testGalleryCtx.strokeRect(x, y, w, h);
+      testGalleryCtx.fillStyle = "rgba(34,197,94,0.12)";
+      testGalleryCtx.fillRect(x, y, w, h);
+      testGalleryCtx.fillStyle = "#22c55e";
+      testGalleryCtx.font = "bold 12px sans-serif";
+      testGalleryCtx.textBaseline = "top";
+      testGalleryCtx.fillText(`${i + 1}`, x + 4, y + 3);
+    });
   };
   img.src = imgData.dataUrl;
 }
 
 function updateTestGalleryNav() {
-  const total = testGalleryState.testImageIds.length;
+  const total = testGalleryState.imageIds.length;
   const idx = testGalleryState.currentIndex;
   testImgCounter.textContent = (idx + 1) + " / " + total;
   prevTestImgBtn.disabled = idx <= 0;
@@ -533,128 +568,27 @@ prevTestImgBtn.addEventListener("click", () => {
 });
 
 nextTestImgBtn.addEventListener("click", () => {
-  if (testGalleryState.currentIndex < testGalleryState.testImageIds.length - 1) {
+  if (testGalleryState.currentIndex < testGalleryState.imageIds.length - 1) {
     testGalleryState.currentIndex++;
     renderTestGalleryImage(testGalleryState.currentIndex);
     updateTestGalleryNav();
   }
 });
 
-// ── Client-side IoU / merge helpers ──
-
-function computeIoU(a, b) {
-  const left = Math.max(a.x, b.x);
-  const top = Math.max(a.y, b.y);
-  const right = Math.min(a.x + a.w, b.x + b.w);
-  const bottom = Math.min(a.y + a.h, b.y + b.h);
-  if (left < right && top < bottom) {
-    const inter = (right - left) * (bottom - top);
-    const union = a.w * a.h + b.w * b.h - inter;
-    return inter / (union || 1);
-  }
-  return 0;
-}
-
-function filterAndMerge(detections, confThresh, iouThresh) {
-  const kept = detections.filter(d => d.confidence >= confThresh);
-  const byImg = {};
-  for (const d of kept) {
-    if (!byImg[d.image_id]) byImg[d.image_id] = [];
-    byImg[d.image_id].push(d);
-  }
-  const result = [];
-  for (const boxes of Object.values(byImg)) {
-    const used = new Array(boxes.length).fill(false);
-    for (let i = 0; i < boxes.length; i++) {
-      if (used[i]) continue;
-      used[i] = true;
-      let gx1 = boxes[i].x, gy1 = boxes[i].y;
-      let gx2 = boxes[i].x + boxes[i].w, gy2 = boxes[i].y + boxes[i].h;
-      for (let j = 0; j < boxes.length; j++) {
-        if (used[j]) continue;
-        const bx1 = boxes[j].x, by1 = boxes[j].y;
-        const bx2 = boxes[j].x + boxes[j].w, by2 = boxes[j].y + boxes[j].h;
-        if (computeIoU({x: gx1, y: gy1, w: gx2 - gx1, h: gy2 - gy1}, {x: bx1, y: by1, w: bx2 - bx1, h: by2 - by1}) > iouThresh) {
-          used[j] = true;
-          gx1 = Math.min(gx1, bx1);
-          gy1 = Math.min(gy1, by1);
-          gx2 = Math.max(gx2, bx2);
-          gy2 = Math.max(gy2, by2);
-        }
-      }
-      result.push({
-        x: gx1, y: gy1,
-        w: gx2 - gx1, h: gy2 - gy1,
-        image_id: boxes[i].image_id,
-        sliding_window: true,
-        confidence: boxes[i].confidence,
-      });
-    }
-  }
-  return result;
-}
-
-// ── Detection Tuning ──
-
-let tuningRawPredictions = [];
-let tuningBound = false;
-
-function showImageTuning(testImageIds, rawPredictions) {
-  if (!testImageIds || testImageIds.length === 0) return;
-  tuningRawPredictions = rawPredictions || [];
-  testGalleryState.testImageIds = testImageIds;
-  testGalleryState.currentIndex = 0;
-  imgTuningSection.style.display = "";
-  imgTestGallerySection.style.display = "";
-
-  const confSlider = document.getElementById("tuningConfSlider");
-  const nmsSlider = document.getElementById("tuningNmsSlider");
-  const confVal = document.getElementById("tuningConfValue");
-  const nmsVal = document.getElementById("tuningNmsValue");
-
-  const applyTuning = () => {
-    const ct = parseFloat(confSlider.value);
-    const nt = parseFloat(nmsSlider.value);
-    confVal.textContent = ct.toFixed(2);
-    nmsVal.textContent = nt.toFixed(2);
-    rebuildTestGallery(ct, nt);
-  };
-
-  if (!tuningBound) {
-    tuningBound = true;
-    confSlider.addEventListener("input", applyTuning);
-    nmsSlider.addEventListener("input", applyTuning);
-  }
-
-  applyTuning();
-}
-
-function rebuildTestGallery(confThresh, nmsThresh) {
-  const filtered = filterAndMerge(tuningRawPredictions, confThresh, nmsThresh);
-  const predMap = {};
-  for (const p of filtered) {
-    if (!predMap[p.image_id]) predMap[p.image_id] = [];
-    predMap[p.image_id].push(p);
-  }
-  testGalleryState.predictionsMap = predMap;
-  renderTestGalleryImage(testGalleryState.currentIndex);
-  updateTestGalleryNav();
-}
-
-// ── Image Save ──
+// ── Save ──
 
 imgSaveBtn.addEventListener("click", async () => {
   if (!requireAdmin()) return;
   const name = prompt(t("save_prompt"));
   if (!name) return;
   try {
-    const result = await api("/api/image_train/save", {
+    await api("/api/image_train/save", {
       method: "POST",
       body: JSON.stringify({ name: name.trim() })
     });
     imgSaveStatus.textContent = t("saved_ok") + ": " + name.trim() + ".model";
     await loadImageModels();
   } catch (err) {
-    imgSaveStatus.textContent = "Error: " + err.message;
+    imgSaveStatus.textContent = t("error_prefix") + ": " + err.message;
   }
 });

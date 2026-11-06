@@ -51,6 +51,7 @@ const nextImgBtn = document.getElementById("nextImgBtn");
 const imgCounter = document.getElementById("imgCounter");
 const boxCount = document.getElementById("boxCount");
 const undoBoxBtn = document.getElementById("undoBoxBtn");
+const redoBoxBtn = document.getElementById("redoBoxBtn");
 const clearBoxesBtn = document.getElementById("clearBoxesBtn");
 const imgTrainSection = document.getElementById("imgTrainSection");
 const imgTrainBtn = document.getElementById("imgTrainBtn");
@@ -61,23 +62,10 @@ const imgResultsSection = document.getElementById("imgResultsSection");
 const imgMetricsDisplay = document.getElementById("imgMetricsDisplay");
 const imgDownloadBtn = document.getElementById("imgDownloadBtn");
 const imgSaveBtn = document.getElementById("imgSaveBtn");
-const imgDualSlider = document.getElementById("imgDualSlider");
-const imgThumbTrain = document.getElementById("imgThumbTrain");
-const imgThumbTest = document.getElementById("imgThumbTest");
-const imgFillTrain = document.getElementById("imgFillTrain");
-const imgFillVal = document.getElementById("imgFillVal");
-const imgFillTest = document.getElementById("imgFillTest");
 const imgSaveStatus = document.getElementById("imgSaveStatus");
 const imgModelList = document.getElementById("imgModelList");
 const imgModelFilter = document.getElementById("imgModelFilter");
-const imgAlgorithmSelect = document.getElementById("imgAlgorithmSelect");
-const imgAlgoTooltipIcon = document.getElementById("imgAlgoTooltipIcon");
-const imgAlgoTooltipText = document.getElementById("imgAlgoTooltipText");
-const imgHyperParams = document.getElementById("imgHyperParams");
 const imgModelsSection = document.getElementById("imgModelsSection");
-const imgPredSection = document.getElementById("imgPredSection");
-const imgPredGrid = document.getElementById("imgPredGrid");
-const imgKFolds = document.getElementById("imgKFolds");
 const imgTestGallerySection = document.getElementById("imgTestGallerySection");
 const testGalleryCanvas = document.getElementById("testGalleryCanvas");
 const testCanvasPlaceholder = document.getElementById("testCanvasPlaceholder");
@@ -107,6 +95,19 @@ async function loadTranslations(language) {
 }
 
 function t(key) { return translations[key] ?? key; }
+
+function balancedColumns(count) {
+  if (count <= 1) return 1;
+  for (let cols = Math.min(5, count); cols >= 2; cols--) {
+    if (count % cols === 0) return cols;
+  }
+  return Math.max(2, Math.ceil(count / Math.ceil(count / 5)));
+}
+
+function setMetricColumns(container, count) {
+  if (!container) return;
+  container.style.setProperty("--metric-cols", balancedColumns(count));
+}
 
 function pt(prefix, n) {
   const _n = Math.abs(n);

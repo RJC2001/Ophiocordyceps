@@ -9,7 +9,7 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.dummy import DummyClassifier, DummyRegressor
+from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import (
     RandomForestClassifier,
     RandomForestRegressor,
@@ -29,8 +29,10 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.model_selection import KFold, cross_val_score, train_test_split
+from sklearn.model_selection import KFold, train_test_split
 from sklearn.neural_network import MLPClassifier, MLPRegressor
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.svm import SVC, SVR
 
 from core.config import MODELS_CSV_DIR
@@ -45,17 +47,6 @@ ALGORITHMS = {
         "params": {
             "n_estimators": {"type": "int", "default": 100},
             "max_depth": {"type": "int", "default": 0},
-        },
-    },
-    "dummy": {
-        "label": "Dummy",
-        "description": "Always predicts a constant value based on a simple strategy. Use as a reference to evaluate other models.",
-        "params": {
-            "strategy": {
-                "type": "select",
-                "default": "most_frequent",
-                "options": ["most_frequent", "prior", "stratified", "uniform", "constant", "mean", "median", "quantile"],
-            },
         },
     },
     "logistic_regression": {
@@ -129,19 +120,6 @@ def get_available_algorithms() -> dict[str, Any]:
 def _build_model(
     algorithm: str, task: str, params: dict[str, Any]
 ) -> object:
-    if algorithm == "dummy":
-        strategy = str(params.get("strategy", ""))
-        cls_strategies = {"most_frequent", "prior", "stratified", "uniform", "constant"}
-        reg_strategies = {"mean", "median", "quantile", "constant"}
-        if task == "classification":
-            if strategy not in cls_strategies:
-                strategy = "most_frequent"
-            return DummyClassifier(strategy=strategy)
-        else:
-            if strategy not in reg_strategies:
-                strategy = "mean"
-            return DummyRegressor(strategy=strategy)
-
     if algorithm == "random_forest":
         md = params.get("max_depth", 0)
         kwargs = {
@@ -216,6 +194,32 @@ def _build_model(
     raise ValueError(f"Unknown algorithm: {algorithm}")
 
 
+def _wrap_with_preprocessing(model: object, X_train) -> object:
+    """Add one-hot encoding for text/categorical feature columns.
+
+    Numeric columns are passed through unchanged.  Wrapping the estimator in a
+    pipeline means prediction can be done directly on the original CSV columns
+    (including categories the model did not see during training, which are
+    ignored instead of raising).
+    """
+    cat_cols = [
+        col for col in X_train.columns
+        if not pd.api.types.is_numeric_dtype(X_train[col])
+    ]
+    if not cat_cols:
+        return model
+
+    num_cols = [col for col in X_train.columns if col not in cat_cols]
+    preprocess = ColumnTransformer(
+        transformers=[
+            ("num", "passthrough", num_cols),
+            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_cols),
+        ],
+        remainder="drop",
+    )
+    return Pipeline([("preprocess", preprocess), ("model", model)])
+
+
 def _detect_task(y: pd.Series) -> str:
     unique = y.nunique()
     if y.dtype in ("int64", "int32", "int16", "int8", "bool", "uint8"):
@@ -228,9 +232,10 @@ def _detect_task(y: pd.Series) -> str:
 
 
 def _cancellable_fit(model: Any, X_train, y_train, cancelled_fn) -> bool:
-    if isinstance(model, MLPClassifier):
-        max_epochs = model.max_iter
-        model.set_params(warm_start=True, max_iter=1)
+    estimator = model.named_steps.get("model") if isinstance(model, Pipeline) else model
+    if isinstance(estimator, MLPClassifier):
+        max_epochs = estimator.max_iter
+        estimator.set_params(warm_start=True, max_iter=1)
         for _ in range(max_epochs):
             if cancelled_fn():
                 return True
@@ -324,6 +329,7 @@ def _train_worker(
                 X_fold_train, X_fold_val = X.iloc[train_idx], X.iloc[val_idx]
                 y_fold_train, y_fold_val = y.iloc[train_idx], y.iloc[val_idx]
                 model_fold = _build_model(algorithm, task, params)
+                model_fold = _wrap_with_preprocessing(model_fold, X_fold_train)
                 if _cancellable_fit(model_fold, X_fold_train, y_fold_train, lambda: state.get("_cancel")):
                     log_msg("Training cancelled by user")
                     state["status"] = "cancelled"
@@ -375,6 +381,7 @@ def _train_worker(
                 state["status"] = "cancelled"
                 return
             log_msg("Training final model on full dataset...")
+            model = _wrap_with_preprocessing(model, X)
             if _cancellable_fit(model, X, y, lambda: state.get("_cancel")):
                 log_msg("Training cancelled by user")
                 state["status"] = "cancelled"
@@ -398,6 +405,7 @@ def _train_worker(
             log_msg(f"Training {algorithm}...")
 
             fit_start = time.time()
+            model = _wrap_with_preprocessing(model, X_train)
             if _cancellable_fit(model, X_train, y_train, lambda: state.get("_cancel")):
                 log_msg("Training cancelled by user")
                 state["status"] = "cancelled"

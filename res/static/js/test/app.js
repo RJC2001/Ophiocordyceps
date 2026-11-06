@@ -94,7 +94,7 @@ async function loadModels() {
       modelSelect.appendChild(opt);
     }
   } catch (err) {
-    modelSelect.innerHTML = `<option value="">Error: ${err.message}</option>`;
+    modelSelect.innerHTML = `<option value="">${t("error_prefix")}: ${err.message}</option>`;
   }
 }
 
@@ -111,7 +111,7 @@ selectModelBtn.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({ model_name: name, type: "csv" })
     });
-    if (info.type === "image_detector") {
+    if (info.type === "image_detector" || info.type === "layout_detector") {
       // Switch to Image tab and select there
       document.querySelector('.mode-tab[data-mode="image"]').click();
       await loadImageModels();
@@ -128,7 +128,7 @@ selectModelBtn.addEventListener("click", async () => {
     resultsSection.style.display = "none";
     revalidateFeatures();
   } catch (err) {
-    alert("Error: " + err.message);
+    alert(t("error_prefix") + ": " + err.message);
   }
 });
 
@@ -282,12 +282,12 @@ predictBtn.addEventListener("click", async () => {
           } else if (st.status === "cancelled") {
             clearInterval(csvPollInterval);
             csvPollInterval = null;
-            alert("Prediction cancelled.");
+            alert(t("prediction_cancelled") || "Prediction cancelled.");
             resolve();
           } else if (st.status === "error") {
             clearInterval(csvPollInterval);
             csvPollInterval = null;
-            throw new Error(st.error || "Prediction failed");
+            throw new Error(st.error || t("prediction_failed"));
           }
         } catch (e) {
           clearInterval(csvPollInterval);
@@ -297,7 +297,7 @@ predictBtn.addEventListener("click", async () => {
       }, 500);
     });
   } catch (err) {
-    alert("Error: " + err.message);
+    alert(t("error_prefix") + ": " + err.message);
   } finally {
     predictBtn.disabled = false;
     predictBtn.textContent = t("test_predict_btn");
@@ -407,22 +407,6 @@ const imgTestClearBtn = document.getElementById("imgTestClearBtn");
 const imgTestResultsSection = document.getElementById("imgTestResultsSection");
 const imgTestPreview = document.getElementById("imgTestPreview");
 const downloadDetectionsBtn = document.getElementById("downloadDetectionsBtn");
-const confidenceSlider = document.getElementById("confidenceSlider");
-const confidenceValue = document.getElementById("confidenceValue");
-const mergeSlider = document.getElementById("mergeSlider");
-const mergeValue = document.getElementById("mergeValue");
-
-if (confidenceSlider && confidenceValue) {
-  confidenceSlider.addEventListener("input", () => {
-    confidenceValue.textContent = parseFloat(confidenceSlider.value).toFixed(2);
-  });
-}
-
-if (mergeSlider && mergeValue) {
-  mergeSlider.addEventListener("input", () => {
-    mergeValue.textContent = parseFloat(mergeSlider.value).toFixed(2);
-  });
-}
 
 let imgModelState = null;
 let imgUploadToken = null;
@@ -459,7 +443,7 @@ async function loadImageModels() {
       imgModelSelect.innerHTML = `<option value="">${t("img_no_models") || "-- No image models --"}</option>`;
     }
   } catch (err) {
-    imgModelSelect.innerHTML = `<option value="">Error: ${err.message}</option>`;
+    imgModelSelect.innerHTML = `<option value="">${t("error_prefix")}: ${err.message}</option>`;
   }
 }
 
@@ -475,7 +459,7 @@ async function selectImageModel(name) {
     imgTestUploadSection.style.display = "";
     imgTestResultsSection.style.display = "none";
   } catch (err) {
-    alert("Error: " + err.message);
+    alert(t("error_prefix") + ": " + err.message);
   }
 }
 
@@ -596,12 +580,8 @@ detectBtn.addEventListener("click", async () => {
   }
 
   try {
-    const confidence = confidenceSlider ? parseFloat(confidenceSlider.value) : 0.5;
-    const mergeThreshold = mergeSlider ? parseFloat(mergeSlider.value) : 0.2;
     const body = {
       images: imgTestImages.map(img => ({ filename: img.filename, data: img.data })),
-      confidence: confidence,
-      merge_threshold: mergeThreshold,
     };
     if (imgModelState.source === "server") {
       body.model_name = imgModelState.name;
@@ -635,19 +615,19 @@ detectBtn.addEventListener("click", async () => {
             imgPollInterval = null;
             // Fetch ZIP
             const zipResp = await fetch("/api/image_test/download/" + zipToken);
-            if (!zipResp.ok) throw new Error("Failed to download ZIP");
+            if (!zipResp.ok) throw new Error(t("download_failed"));
             lastZipBlob = await zipResp.blob();
             showImageDetectionResults(st.detections || []);
             resolve();
           } else if (st.status === "cancelled") {
             clearInterval(imgPollInterval);
             imgPollInterval = null;
-            alert("Detection cancelled.");
+            alert(t("img_detection_cancelled") || "Detection cancelled.");
             resolve();
           } else if (st.status === "error") {
             clearInterval(imgPollInterval);
             imgPollInterval = null;
-            throw new Error(st.error || "Detection failed");
+            throw new Error(st.error || t("detection_failed"));
           }
         } catch (e) {
           clearInterval(imgPollInterval);
@@ -657,7 +637,7 @@ detectBtn.addEventListener("click", async () => {
       }, 500);
     });
   } catch (err) {
-    alert("Error: " + err.message);
+    alert(t("error_prefix") + ": " + err.message);
   } finally {
     detectBtn.disabled = false;
     detectBtn.textContent = t("img_detect_btn") || "Detect Objects";
@@ -677,7 +657,7 @@ function drawDetectionsOnCanvas(img, detections, canvas) {
   ctx.fillStyle = "#00ff00";
   for (const d of detections) {
     ctx.strokeRect(d.x, d.y, d.w, d.h);
-    ctx.fillText(d.confidence.toFixed(2), d.x, Math.max(0, d.y - 4));
+    ctx.fillText(d.label || "object", d.x, Math.max(0, d.y - 4));
   }
 }
 
@@ -691,19 +671,16 @@ function showImageDetectionResults(allDetections) {
   statusMsg.textContent = (t("img_test_detection_done") || "Detection complete.") + " (" + totalDets + " objects in " + imgTestImages.length + " " + (t("img_images") || "images") + ")";
   imgTestPreview.appendChild(statusMsg);
 
-  // Build detections map by filename
-  const detMap = {};
-  for (const im of (allDetections || [])) {
-    detMap[im.filename] = im;
-  }
-
-  // Show preview thumbnails with boxes drawn on canvas
+  // Show preview thumbnails with boxes drawn on canvas. Results are in the
+  // same order as the uploaded images, so index them by position: filenames
+  // can repeat when photos come from different folders.
   const previewGrid = document.createElement("div");
   previewGrid.className = "img-test-thumbs";
-  for (const img of imgTestImages) {
+  for (let idx = 0; idx < imgTestImages.length; idx++) {
+    const img = imgTestImages[idx];
     const thumb = document.createElement("div");
     thumb.className = "img-thumb";
-    const detInfo = detMap[img.filename];
+    const detInfo = (allDetections || [])[idx];
     if (detInfo && detInfo.detections && detInfo.detections.length > 0) {
       const canvas = document.createElement("canvas");
       canvas.className = "img-thumb-canvas";

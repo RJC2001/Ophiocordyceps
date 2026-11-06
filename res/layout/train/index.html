@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Training</title>
+  <title data-i18n="nav_train">Training</title>
   <link rel="icon" type="image/png" href="/static/drawable/ophiocordyceps.png">
   <link rel="apple-touch-icon" href="/static/drawable/ophiocordyceps.png">
   <link rel="stylesheet" href="/static/css/current.css">
@@ -24,7 +24,6 @@
       <div class="hero-copy">
         <p class="eyebrow" data-i18n="hero_eyebrow">Ophiocordyceps</p>
         <h1 data-i18n="hero_title">Training workspace</h1>
-        <p class="lead" data-i18n="hero_lead">Upload data, configure the model, train, and download.</p>
       </div>
 
       <div class="hero-tools">
@@ -149,9 +148,9 @@
                     <div class="dual-thumb" id="thumbTest" style="left:85%"><div class="dual-knob"></div></div>
                   </div>
                   <div class="split-bar-labels">
-                    <span data-i18n="split_bar_train">Train</span>
-                    <span data-i18n="split_bar_val">Validation</span>
-                    <span data-i18n="split_bar_test">Test</span>
+                    <span><span data-i18n="split_bar_train">Train</span>: <strong class="split-count" id="csvCountTrain"></strong></span>
+                    <span><span data-i18n="split_bar_val">Validation</span>: <strong class="split-count" id="csvCountVal"></strong></span>
+                    <span><span data-i18n="split_bar_test">Test</span>: <strong class="split-count" id="csvCountTest"></strong></span>
                   </div>
                 </div>
               </div>
@@ -263,11 +262,10 @@
         </div>
 
         <div class="upload-zone" id="imgUploadZone">
-          <input type="file" id="imgFileInput" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+          <input type="file" id="imgFileInput" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple hidden>
           <p data-i18n="img_upload_hint">Click or drag image files here (PNG, JPG, WEBP)</p>
         </div>
 
-        <!-- Image list thumbnails -->
         <div id="imgList" class="img-list" style="display:none">
           <div class="img-list-header">
             <span data-i18n="img_list_title">Images</span>
@@ -305,11 +303,12 @@
               <strong id="boxCount">0</strong>
             </div>
             <div class="shape-mode-buttons">
-              <button type="button" class="shape-btn active" data-shape="rect" title="Rectangle"><svg viewBox="0 0 20 20" width="16" height="16"><rect x="2" y="2" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"/></svg></button>
-              <button type="button" class="shape-btn" data-shape="circle" title="Ellipse"><svg viewBox="0 0 20 20" width="16" height="16"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2.5"/></svg></button>
-              <button type="button" class="shape-btn" data-shape="polygon" title="Polygon"><svg viewBox="0 0 20 20" width="16" height="16"><polygon points="10,1.5 18.5,7.5 15.5,17.5 4.5,17.5 1.5,7.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg></button>
+              <button type="button" class="shape-btn active" data-shape="rect" data-i18n-title="img_shape_rect" title="Rectangle"><svg viewBox="0 0 20 20" width="16" height="16"><rect x="2" y="2" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"/></svg></button>
+              <button type="button" class="shape-btn" data-shape="circle" data-i18n-title="img_shape_circle" title="Ellipse"><svg viewBox="0 0 20 20" width="16" height="16"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2.5"/></svg></button>
+              <button type="button" class="shape-btn" data-shape="polygon" data-i18n-title="img_shape_polygon" title="Polygon"><svg viewBox="0 0 20 20" width="16" height="16"><polygon points="10,1.5 18.5,7.5 15.5,17.5 4.5,17.5 1.5,7.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg></button>
             </div>
-            <button type="button" id="undoBoxBtn" class="secondary small-btn" data-i18n="img_undo">Undo last</button>
+            <button type="button" id="undoBoxBtn" class="secondary small-btn" data-i18n="img_undo">Undo</button>
+            <button type="button" id="redoBoxBtn" class="secondary small-btn" data-i18n="img_redo">Redo</button>
             <button type="button" id="clearBoxesBtn" class="secondary small-btn" data-i18n="img_clear_boxes">Clear all</button>
           </div>
         </div>
@@ -323,120 +322,69 @@
             <h2 data-i18n="img_train_title">Train Detector</h2>
           </div>
         </div>
-
-        <div class="preproc-grid">
-          <p class="preproc-title" data-i18n="preproc_title">Preprocessing</p>
-
-          <div class="preproc-field full">
-            <span data-i18n="val_strategy_label">Validation strategy</span>
-            <div class="radio-group horizontal" id="imgValStrategyGroup">
-              <label class="radio-label">
-                <input type="radio" name="img_val_strategy" value="simple" checked>
-                <span data-i18n="val_strategy_simple">Simple split</span>
-              </label>
-              <label class="radio-label">
-                <input type="radio" name="img_val_strategy" value="kfold">
-                <span data-i18n="val_strategy_kfold">K-fold cross-validation</span>
-              </label>
+        <div class="preproc-grid" style="margin-bottom:12px">
+          <div class="preproc-field full split-bar-section">
+            <span data-i18n="img_split_label">Train / Validation / Test split</span>
+            <div class="dual-slider" id="imgDualSlider">
+              <div class="dual-slider-fills" id="imgSliderFills">
+                <div class="dual-fill train" id="imgFillTrain">70%</div>
+                <div class="dual-fill val" id="imgFillVal">15%</div>
+                <div class="dual-fill test" id="imgFillTest">15%</div>
+              </div>
+              <div class="dual-thumb" id="imgThumbTrain" style="left:70%"><div class="dual-knob"></div></div>
+              <div class="dual-thumb" id="imgThumbTest" style="left:85%"><div class="dual-knob"></div></div>
             </div>
-            <div id="imgParamsRow" class="img-seed-row" style="flex-wrap:wrap">
-              <div style="display:flex;gap:12px;align-items:center;width:100%">
-                <label class="checkbox-inline" style="font-size:12px">
-                  <input type="checkbox" id="imgUseGrayscale">
-                  <span data-i18n="grayscale">Grayscale</span>
-                </label>
-                <label class="checkbox-inline" style="font-size:12px">
-                  <input type="checkbox" id="imgUseJitter">
-                  <span data-i18n="img_jitter_bc">Jitter B/C</span>
-                </label>
-              </div>
-              <div style="display:flex;gap:12px;align-items:center">
-                <label class="checkbox-inline" style="font-size:12px">
-                  <input type="checkbox" id="imgUseNeg" checked>
-                  <span data-i18n="img_neg_per_ann">Neg./ann.</span>
-                  <input type="number" id="imgNegPerAnn" value="100" min="0" style="width:80px">
-                </label>
-                <label class="checkbox-inline" style="font-size:12px">
-                  <input type="checkbox" id="imgUseShuffle">
-                  <span data-i18n="shuffle_label">Shuffle</span>
-                  <input type="number" id="imgRandomSeed" min="0" max="999999" step="1" value="42" style="width:70px">
-                </label>
-              </div>
-              <div style="display:flex;gap:12px;align-items:center">
-                <label class="checkbox-inline" style="font-size:12px">
-                  <input type="checkbox" id="imgUseIouConf" checked>
-                  <span data-i18n="img_iou_conf">IoU conf.</span>
-                  <input type="number" id="imgIouConf" min="0" max="1" step="0.01" value="0.01" style="width:70px" disabled>
-                </label>
-                <label class="checkbox-inline" style="font-size:12px">
-                  <input type="checkbox" id="imgUseIouNms" checked>
-                  <span data-i18n="img_iou_nms">IoU NMS</span>
-                  <input type="number" id="imgIouNms" min="0" max="1" step="0.01" value="0.01" style="width:70px" disabled>
-                </label>
-              </div>
-              <div style="display:flex;gap:12px;align-items:center">
-                <label class="checkbox-inline" style="font-size:12px">
-                  <input type="checkbox" id="imgUsePatchSize">
-                  <span data-i18n="img_patch_size">Patch size</span>
-                  <input type="number" id="imgPatchSize" min="8" max="512" step="8" value="32" style="width:70px" disabled>
-                </label>
-                <label class="checkbox-inline" style="font-size:12px">
-                  <input type="checkbox" id="imgUseFeatureSize">
-                  <span data-i18n="img_feature_size">Feature size</span>
-                  <input type="number" id="imgFeatureSize" min="8" max="512" step="8" value="64" style="width:70px" disabled>
-                </label>
-              </div>
+            <div class="split-bar-labels">
+              <span><span data-i18n="split_bar_train">Train</span>: <strong class="split-count" id="imgCountTrain"></strong></span>
+              <span><span data-i18n="split_bar_val">Validation</span>: <strong class="split-count" id="imgCountVal"></strong></span>
+              <span><span data-i18n="split_bar_test">Test</span>: <strong class="split-count" id="imgCountTest"></strong></span>
             </div>
-          </div>
-
-          <div id="imgSplitConfig" class="full">
-            <div class="preproc-field full split-bar-section" id="imgSplitBarSection">
-              <div class="dual-slider" id="imgDualSlider">
-                <div class="dual-slider-fills" id="imgSliderFills">
-                  <div class="dual-fill train" id="imgFillTrain">70%</div>
-                  <div class="dual-fill val" id="imgFillVal">15%</div>
-                  <div class="dual-fill test" id="imgFillTest">15%</div>
-                </div>
-                <div class="dual-thumb" id="imgThumbTrain" style="left:70%"><div class="dual-knob"></div></div>
-                <div class="dual-thumb" id="imgThumbTest" style="left:85%"><div class="dual-knob"></div></div>
-              </div>
-              <div class="split-bar-labels">
-                <span data-i18n="split_bar_train">Train</span>
-                <span data-i18n="split_bar_val">Validation</span>
-                <span data-i18n="split_bar_test">Test</span>
-              </div>
-            </div>
-          </div>
-
-          <div id="imgKfoldConfig" class="full" style="display:none">
-            <label class="preproc-field">
-              <span data-i18n="k_folds_label">Number of folds</span>
-              <input type="number" id="imgKFolds" min="2" max="20" step="1" value="5">
-            </label>
           </div>
         </div>
 
-        <div class="form-grid">
-          <label class="field full">
-            <span data-i18n="algorithm_label">Algorithm</span>
-            <div class="tooltip-wrap">
-              <select id="imgAlgorithmSelect"></select>
-              <span class="tooltip-icon" id="imgAlgoTooltipIcon">?</span>
-              <span class="tooltip-text" id="imgAlgoTooltipText"></span>
-            </div>
-          </label>
-
-          <div id="imgHyperParams" class="params-group full"></div>
-
-          <div class="actions full">
-            <button type="button" id="imgTrainBtn" class="primary" data-i18n="img_train_btn">Train Detector</button>
-            <button type="button" id="imgCancelBtn" class="secondary" style="display:none" data-i18n="cancel_train">Cancel</button>
-            <button type="button" id="imgClearOutputBtn" class="secondary" data-i18n="clear_output">Clear output</button>
+        <details style="margin:0 0 12px;padding:12px;border:1px solid var(--border);border-radius:12px">
+          <summary style="cursor:pointer;font-weight:600" data-i18n="img_detector_config_summary">
+            Detector configuration
+          </summary>
+          <div class="preproc-grid detector-config-grid" style="margin-top:12px">
+            <label class="preproc-field">
+              <span data-i18n="img_anchor_detection">Anchor detection</span>
+              <select id="imgAnchorMode">
+                <option value="hough" data-i18n="img_anchor_hough">Circular object (Hough search)</option>
+                <option value="fixed" selected data-i18n="img_anchor_fixed">Fixed image point</option>
+              </select>
+            </label>
+            <label class="preproc-field">
+              <span data-i18n="img_anchor_center_x">Anchor centre X (0–1)</span>
+              <input type="number" id="imgAnchorCenterX" value="0.52" min="0" max="1" step="0.01">
+            </label>
+            <label class="preproc-field">
+              <span data-i18n="img_anchor_center_y">Anchor centre Y (0–1)</span>
+              <input type="number" id="imgAnchorCenterY" value="0.51" min="0" max="1" step="0.01">
+            </label>
+            <label class="preproc-field">
+              <span data-i18n="img_anchor_radius">Anchor radius (fraction of short side)</span>
+              <input type="number" id="imgAnchorRadius" value="0.5" min="0.02" max="2" step="0.005">
+            </label>
+            <label class="preproc-field">
+              <span data-i18n="img_hough_radius_min">Circle search min radius</span>
+              <input type="number" id="imgHoughRadiusMin" value="0.42" min="0.02" max="2" step="0.005">
+            </label>
+            <label class="preproc-field">
+              <span data-i18n="img_hough_radius_max">Circle search max radius</span>
+              <input type="number" id="imgHoughRadiusMax" value="0.61" min="0.02" max="2" step="0.005">
+            </label>
           </div>
+        </details>
+
+        <div class="actions">
+          <button type="button" id="imgTrainBtn" class="primary" data-i18n="img_train_btn">Train Detector</button>
+          <button type="button" id="imgCancelBtn" class="secondary" style="display:none" data-i18n="cancel_train">Cancel</button>
+          <button type="button" id="imgClearOutputBtn" class="secondary" data-i18n="clear_output">Clear output</button>
         </div>
       </section>
 
-      <!-- Image Training Output -->
+      <!-- Training log -->
       <section class="card section" id="imgOutputSection" style="display:none">
         <div class="section-head">
           <div>
@@ -447,43 +395,12 @@
         <pre id="imgOutputLog" class="output-log"></pre>
       </section>
 
-      <!-- Image Predictions -->
-      <section class="card section" id="imgPredSection" style="display:none">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow" data-i18n="chart_eyebrow">Visualization</p>
-            <h2 data-i18n="img_pred_title">Patch Predictions</h2>
-          </div>
-        </div>
-        <div id="imgPredGrid" class="img-pred-grid"></div>
-      </section>
-
-      <!-- Detection Tuning -->
-      <section class="card section" id="imgTuningSection" style="display:none">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow" data-i18n="tuning_eyebrow">Tuning</p>
-            <h2 data-i18n="tuning_title">Detection Tuning</h2>
-          </div>
-        </div>
-        <div class="tuning-sliders">
-          <label class="tuning-slider-wrap">
-            <span>Confidence: <strong id="tuningConfValue">0.30</strong></span>
-            <input type="range" id="tuningConfSlider" min="0" max="1" step="0.01" value="0.5">
-          </label>
-          <label class="tuning-slider-wrap">
-            <span>NMS: <strong id="tuningNmsValue">1.00</strong></span>
-            <input type="range" id="tuningNmsSlider" min="0" max="1" step="0.01" value="1.0">
-          </label>
-        </div>
-      </section>
-
-      <!-- Image Test Gallery -->
+      <!-- Predictions on the locked, unannotated TEST images -->
       <section class="card section" id="imgTestGallerySection" style="display:none">
         <div class="section-head">
           <div>
-            <p class="eyebrow" data-i18n="test-gallery-eyebrow">Test Images</p>
-            <h2 data-i18n="test-gallery-title">Test Image Predictions</h2>
+            <p class="eyebrow" data-i18n="test-gallery-eyebrow">Preview</p>
+            <h2 data-i18n="img_gallery_title">Test predictions (images without annotations)</h2>
           </div>
           <div class="img-nav">
             <button type="button" id="prevTestImgBtn" class="secondary small-btn" data-i18n="img_prev">◀ Prev</button>
@@ -494,12 +411,12 @@
         <div class="canvas-container">
           <canvas id="testGalleryCanvas"></canvas>
           <div id="testCanvasPlaceholder" class="canvas-placeholder">
-            <p data-i18n="test-canvas-hint">Test images with prediction overlays</p>
+            <p data-i18n="test-canvas-hint">Prediction overlays</p>
           </div>
         </div>
       </section>
 
-      <!-- Image Training Results -->
+      <!-- Metrics -->
       <section class="card section" id="imgResultsSection" style="display:none">
         <div class="section-head">
           <div>
@@ -517,8 +434,7 @@
         <p id="imgSaveStatus" class="save-status"></p>
       </section>
 
-
-      <!-- Image Server Models -->
+      <!-- Saved image models -->
       <section class="card section" id="imgModelsSection">
         <div class="section-head">
           <div>
@@ -527,7 +443,7 @@
           </div>
         </div>
         <div class="field">
-          <input type="text" id="imgModelFilter" data-i18n="model_filter_placeholder" placeholder="Filter models\u2026">
+          <input type="text" id="imgModelFilter" data-i18n="model_filter_placeholder" placeholder="Filter models…">
         </div>
         <ul id="imgModelList" class="model-list"></ul>
       </section>

@@ -48,6 +48,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  document.querySelectorAll("[data-i18n-title]").forEach(node => {
+    const key = node.getAttribute("data-i18n-title");
+    node.title = translations[key] ?? key;
+  });
+
   themeSelect.addEventListener("change", async () => {
     await api("/api/theme", { method: "POST", body: JSON.stringify({ theme: themeSelect.value }) });
     window.location.reload();

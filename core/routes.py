@@ -552,7 +552,7 @@ class TrainHandler(BaseHTTPRequestHandler):
 
             if path == "/api/models/rename":
                 model_type = str(payload.get("type", "csv"))
-                subdir = "image" if model_type == "image_detector" or model_type == "image" else "csv"
+                subdir = "image" if model_type in ("image_detector", "layout_detector", "image") else "csv"
                 result = rename_model(
                     str(payload.get("name", "")),
                     str(payload.get("new_name", "")),
@@ -563,14 +563,14 @@ class TrainHandler(BaseHTTPRequestHandler):
 
             if path == "/api/models/delete":
                 model_type = str(payload.get("type", "csv"))
-                subdir = "image" if model_type == "image_detector" or model_type == "image" else "csv"
+                subdir = "image" if model_type in ("image_detector", "layout_detector", "image") else "csv"
                 result = delete_model(str(payload.get("name", "")), subdir)
                 send_json(self, HTTPStatus.OK, result, session_id=sid)
                 return
 
             if path == "/api/models/stats":
                 model_type = str(payload.get("type", "csv"))
-                subdir = "image" if model_type == "image_detector" or model_type == "image" else "csv"
+                subdir = "image" if model_type in ("image_detector", "layout_detector", "image") else "csv"
                 name = str(payload.get("name", ""))
                 result = get_model_metrics(name, subdir) or {}
                 send_json(self, HTTPStatus.OK, result, session_id=sid)
@@ -601,11 +601,18 @@ class TrainHandler(BaseHTTPRequestHandler):
                 if not model_name:
                     raise ValueError("model_name required")
                 model_type_hint = str(payload.get("type", ""))
-                subdir = "image" if model_type_hint in ("image", "image_detector") else "csv"
+                subdir = "image" if model_type_hint in ("image", "image_detector", "layout_detector") else "csv"
                 metrics = get_model_metrics(model_name, subdir) if subdir else get_model_metrics_anywhere(model_name)
                 if not metrics:
                     metrics = get_model_metrics(model_name, "csv") or get_model_metrics(model_name, "image")
-                if metrics and metrics.get("type") == "image_detector":
+                if metrics and metrics.get("type") in ("image_detector", "layout_detector"):
+                    if metrics.get("type") == "layout_detector":
+                        send_json(self, HTTPStatus.OK, {
+                            "type": "layout_detector",
+                            "count": metrics.get("count"),
+                            "has_metadata": True,
+                        }, session_id=sid)
+                        return
                     pw = metrics.get("patch_width") or metrics.get("patch_size", 32)
                     ph = metrics.get("patch_height") or metrics.get("patch_size", 32)
                     send_json(self, HTTPStatus.OK, {
@@ -625,12 +632,19 @@ class TrainHandler(BaseHTTPRequestHandler):
                     }, session_id=sid)
                 else:
                     # Unknown model type - try to detect from the model file
-                    for try_subdir in ("csv", "image"):
+                    for try_subdir in ("image", "csv"):
                         try:
                             model_path = get_model_path(model_name, try_subdir)
                             data = joblib.load(model_path)
-                            if isinstance(data, dict) and data.get("metadata", {}).get("type") == "image_detector":
-                                meta = data["metadata"]
+                            meta = data.get("metadata", {}) if isinstance(data, dict) else {}
+                            if meta.get("type") == "layout_detector":
+                                send_json(self, HTTPStatus.OK, {
+                                    "type": "layout_detector",
+                                    "count": meta.get("count"),
+                                    "has_metadata": True,
+                                }, session_id=sid)
+                                return
+                            if meta.get("type") == "image_detector":
                                 pw = meta.get("patch_width") or meta.get("patch_size", 32)
                                 ph = meta.get("patch_height") or meta.get("patch_size", 32)
                                 send_json(self, HTTPStatus.OK, {
@@ -641,15 +655,14 @@ class TrainHandler(BaseHTTPRequestHandler):
                                     "has_metadata": True,
                                 }, session_id=sid)
                                 return
-                            else:
-                                send_json(self, HTTPStatus.OK, {
-                                    "type": "csv",
-                                    "feature_cols": [],
-                                    "target_col": "",
-                                    "task": "auto",
-                                    "has_metadata": False,
-                                }, session_id=sid)
-                                return
+                            send_json(self, HTTPStatus.OK, {
+                                "type": "csv",
+                                "feature_cols": [],
+                                "target_col": "",
+                                "task": "auto",
+                                "has_metadata": False,
+                            }, session_id=sid)
+                            return
                         except Exception:
                             continue
                     send_json(self, HTTPStatus.OK, {
@@ -803,35 +816,16 @@ class TrainHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/image_train/start":
-                val_strategy = str(payload.get("val_strategy", "simple"))
-                val_size = float(payload.get("val_size", 0.2))
-                val_size = max(0.0, min(0.8, val_size))
-                test_size = float(payload.get("test_size", 0.0))
-                test_size = max(0.0, min(0.5, test_size))
-                algorithm = str(payload.get("algorithm", "random_forest"))
-                neg_per_ann = int(payload.get("neg_per_ann", 10))
-                if neg_per_ann != -1:
-                    neg_per_ann = max(0, neg_per_ann)
-                params = dict(payload.get("params", {}))
-                shuffle = bool(payload.get("shuffle", True))
-                random_state = int(payload.get("random_state", 42))
-                k_folds = int(payload.get("k_folds", 5))
-                k_folds = max(2, min(20, k_folds))
-                patch_size = int(payload.get("patch_size", 0))
-                if patch_size != 0:
-                    patch_size = max(8, min(512, patch_size))
-                stride = int(payload.get("stride", 0))
-                grayscale = bool(payload.get("grayscale", False))
-                feature_size = int(payload.get("feature_size", 0))
-                if feature_size != 0:
-                    feature_size = max(8, min(512, feature_size))
-                iou_threshold_neg = float(payload.get("iou_threshold_neg", 0.0))
-                iou_threshold_neg = max(0.0, min(1.0, iou_threshold_neg))
-                iou_threshold_nms = float(payload.get("iou_threshold_nms", 0.0))
-                iou_threshold_nms = max(0.0, min(1.0, iou_threshold_nms))
-                brightness_contrast_jitter = bool(payload.get("brightness_contrast_jitter", False))
-                test_image_ids = payload.get("test_image_ids", [])
-                result = start_img_training(sid, val_strategy=val_strategy, val_size=val_size, test_size=test_size, algorithm=algorithm, neg_per_ann=neg_per_ann, params=params, shuffle=shuffle, random_state=random_state, k_folds=k_folds, patch_size=patch_size, test_image_ids=test_image_ids, stride=stride, grayscale=grayscale, feature_size=feature_size, iou_threshold_neg=iou_threshold_neg, iou_threshold_nms=iou_threshold_nms, brightness_contrast_jitter=brightness_contrast_jitter)
+                result = start_img_training(
+                    sid,
+                    val_size=float(payload.get("val_size", 0.15)),
+                    test_size=float(payload.get("test_size", 0.15)),
+                    shuffle=bool(payload.get("shuffle", False)),
+                    random_state=int(payload.get("random_state", 42)),
+                    test_image_ids=payload.get("test_image_ids") if "test_image_ids" in payload else None,
+                    val_image_ids=payload.get("val_image_ids") if "val_image_ids" in payload else None,
+                    detector_config=payload.get("detector_config") if isinstance(payload.get("detector_config"), dict) else None,
+                )
                 send_json(self, HTTPStatus.OK, result, session_id=sid)
                 return
 

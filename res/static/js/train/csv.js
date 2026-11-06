@@ -1,6 +1,7 @@
 let currentAlgorithms = {};
 let pollInterval = null;
 let modelRefreshInterval = null;
+let csvTotalRows = 0;
 
 const dualSlider = document.getElementById("dualSlider");
 const thumbTrain = document.getElementById("thumbTrain");
@@ -8,6 +9,9 @@ const thumbTest = document.getElementById("thumbTest");
 const fillTrain = document.getElementById("fillTrain");
 const fillVal = document.getElementById("fillVal");
 const fillTest = document.getElementById("fillTest");
+const csvCountTrain = document.getElementById("csvCountTrain");
+const csvCountVal = document.getElementById("csvCountVal");
+const csvCountTest = document.getElementById("csvCountTest");
 
 // ── Upload ──
 
@@ -51,6 +55,8 @@ function showDatasetInfo(data) {
   const r = pt("rows", data.total_lines).replace("{n}", data.total_lines);
   const c = pt("cols", data.columns.length).replace("{n}", data.columns.length);
   datasetRows.textContent = r + ", " + c;
+  csvTotalRows = Number.isFinite(data.rows) ? data.rows : data.total_lines || 0;
+  updateSplitBar();
 
   const thead = previewTable.querySelector("thead");
   const tbody = previewTable.querySelector("tbody");
@@ -147,6 +153,8 @@ clearDataset.addEventListener("click", async () => {
   disableResults();
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
   fileInput.value = "";
+  csvTotalRows = 0;
+  updateSplitBar();
 });
 
 // ── Algorithms ──
@@ -158,18 +166,22 @@ async function loadAlgorithms() {
     if (cfg.available === false) continue;
     const opt = document.createElement("option");
     opt.value = key;
-    opt.textContent = t("algo_label_" + key) || cfg.label || key;
+    opt.textContent = translations["algo_label_" + key] || cfg.label || key;
     algorithmSelect.appendChild(opt);
   }
   renderHyperParams();
   updateTooltip();
 }
 
+function prettyName(value) {
+  return String(value).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function updateTooltip() {
   const algoKey = algorithmSelect.value;
   const cfg = currentAlgorithms[algoKey];
   if (cfg && cfg.description) {
-    algoTooltipText.textContent = t(`algo_desc_${algoKey}`) || cfg.description;
+    algoTooltipText.textContent = translations[`algo_desc_${algoKey}`] || cfg.description;
     algoTooltipIcon.style.display = "inline-flex";
   } else {
     algoTooltipText.textContent = "";
@@ -184,7 +196,8 @@ function renderHyperParams() {
 
   let html = '<p class="params-title">' + t("hyperparams_title") + '</p>';
   for (const [key, param] of Object.entries(cfg.params)) {
-    const label = t("param_" + key) || key.replace(/_/g, " ");
+    const label = translations["param_" + key] || prettyName(key);
+    const placeholder = translations["param_" + key + "_hint"] || param.hint || "";
     const val = param.default;
     if (param.type === "int") {
       html += `<label class="param-field"><span>${label}</span><input type="number" name="param_${key}" value="${val}"${param.min !== undefined ? ` min="${param.min}"` : ""}${param.max !== undefined ? ` max="${param.max}"` : ""} step="1"></label>`;
@@ -193,12 +206,14 @@ function renderHyperParams() {
     } else if (param.type === "select") {
       html += `<label class="param-field"><span>${label}</span><select name="param_${key}">`;
       for (const opt of (param.options || [])) {
-        const display = t("param_strategy_" + opt) || opt.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+        const display = translations["param_" + key + "_" + opt]
+          || translations["param_strategy_" + opt]
+          || prettyName(opt);
         html += `<option value="${opt}"${opt === val ? " selected" : ""}>${display}</option>`;
       }
       html += `</select></label>`;
     } else if (param.type === "string") {
-      html += `<label class="param-field"><span>${label}</span><input type="text" name="param_${key}" value="${val}" placeholder="${param.hint || ""}"></label>`;
+      html += `<label class="param-field"><span>${label}</span><input type="text" name="param_${key}" value="${val}" placeholder="${placeholder}"></label>`;
     }
   }
   hyperParams.innerHTML = html;
@@ -212,11 +227,32 @@ algorithmSelect.addEventListener("change", () => {
 // ── Dual slider ──
 
 function getThumbPos(thumb) {
-  return parseFloat(thumb.style.left) || 70;
+  const value = parseFloat(thumb && thumb.style.left);
+  return Number.isFinite(value) ? value : 70;
 }
 
 function setThumbPos(thumb, pct) {
   thumb.style.left = Math.round(pct) + "%";
+}
+
+function updateSplitCounts(trainPct, valPct, testPct) {
+  const total = csvTotalRows;
+  const set = (element, value) => {
+    if (element) element.textContent = total ? value : "";
+  };
+  if (!total) {
+    [csvCountTrain, csvCountVal, csvCountTest].forEach((element) => {
+      if (element) element.textContent = "";
+    });
+    return;
+  }
+  const test = Math.ceil(total * testPct / 100);
+  const remainder = total - test;
+  const val = Math.ceil(remainder * valPct / Math.max(1, 100 - testPct));
+  const train = Math.max(0, remainder - val);
+  set(csvCountTrain, train);
+  set(csvCountVal, val);
+  set(csvCountTest, test);
 }
 
 function updateSplitBar() {
@@ -231,6 +267,7 @@ function updateSplitBar() {
   fillVal.textContent = Math.round(val) + "%";
   fillTest.style.width = test + "%";
   fillTest.textContent = Math.round(test) + "%";
+  updateSplitCounts(train, val, test);
 }
 
 (function initSlider() {
@@ -431,14 +468,14 @@ function startPolling() {
         trainBtn.disabled = false;
         trainBtn.textContent = t("train_btn");
         document.getElementById("csvCancelBtn").style.display = "none";
-        appendLog("Training cancelled.");
+        appendLog(t("img_training_cancelled") || "Training cancelled.");
       } else if (status.status === "error") {
         clearInterval(pollInterval);
         pollInterval = null;
         trainBtn.disabled = false;
         trainBtn.textContent = t("train_btn");
         document.getElementById("csvCancelBtn").style.display = "none";
-        appendLog("ERROR: " + (status.error || "Unknown error"));
+        appendLog(t("error_prefix") + ": " + (status.error || t("unknown_error")));
       }
     } catch (err) {
       // ignore polling errors
@@ -459,19 +496,23 @@ function showResults(metrics) {
     : ["mae", "mse", "rmse", "r2"];
 
   const labels = {
-    accuracy: "Accuracy", precision: "Precision", recall: "Recall",
-    f1_score: "F1 Score", roc_auc: "ROC AUC",
-    mae: "MAE", mse: "MSE", rmse: "RMSE", r2: "R\u00b2"
+    accuracy: "metric_accuracy", precision: "metric_precision",
+    recall: "metric_recall", f1_score: "metric_f1", roc_auc: "metric_roc_auc",
+    mae: "metric_mae", mse: "metric_mse", rmse: "metric_rmse", r2: "metric_r2"
   };
 
-  for (const key of metricKeys) {
+  const visibleKeys = metricKeys.filter(key => {
     const val = metrics[key];
-    if (val !== undefined && val !== null && (typeof val === "string" || !isNaN(val))) {
-      const div = document.createElement("div");
-      div.className = "metric-card";
-      div.innerHTML = `<strong>${labels[key] || key}</strong><span class="metric-value">${val}</span>`;
-      metricsDisplay.appendChild(div);
-    }
+    return val !== undefined && val !== null && (typeof val === "string" || !isNaN(val));
+  });
+
+  setMetricColumns(metricsDisplay, visibleKeys.length);
+  for (const key of visibleKeys) {
+    const val = metrics[key];
+    const div = document.createElement("div");
+    div.className = "metric-card";
+    div.innerHTML = `<strong>${t(labels[key]) || key}</strong><span class="metric-value">${val}</span>`;
+    metricsDisplay.appendChild(div);
   }
 }
 
@@ -489,7 +530,7 @@ saveConfirmBtn.addEventListener("click", async () => {
     saveStatus.textContent = t("saved_ok") + ": " + name.trim() + ".model";
     await loadModels();
   } catch (err) {
-    saveStatus.textContent = "Error: " + err.message;
+    saveStatus.textContent = t("error_prefix") + ": " + err.message;
   }
 });
 
@@ -502,7 +543,7 @@ document.getElementById("csvCancelBtn").addEventListener("click", async () => {
   const btn = document.getElementById("csvCancelBtn");
   btn.disabled = true;
   btn.textContent = t("cancelling") || "Cancelling...";
-  appendLog("Cancelling...");
+  appendLog(t("cancelling"));
   try {
     await api("/api/train/cancel", { method: "POST", body: "{}" });
   } catch (_) {}
@@ -515,7 +556,7 @@ async function loadModels() {
     const data = await api("/api/models?type=csv");
     renderModels(data || []);
   } catch (err) {
-    modelList.innerHTML = `<li class="model-empty">Error: ${err.message}</li>`;
+    modelList.innerHTML = `<li class="model-empty">${t("error_prefix")}: ${err.message}</li>`;
   }
 }
 
@@ -571,7 +612,7 @@ function renderModels(models) {
         const lines = Object.entries(metrics).map(([k, v]) => `${k}: ${v}`);
         alert(lines.join("\n"));
       } catch (err) {
-        alert("Error: " + err.message);
+        alert(t("error_prefix") + ": " + err.message);
       }
     });
 
@@ -592,7 +633,7 @@ function renderModels(models) {
         });
         await loadModels();
       } catch (err) {
-        alert("Error: " + err.message);
+        alert(t("error_prefix") + ": " + err.message);
       }
     });
 

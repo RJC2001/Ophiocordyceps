@@ -1,6 +1,7 @@
 document.addEventListener("DOMContentLoaded", async () => {
   try {
     disableResults();
+    disableImgResults();
     await loadConfig();
     await loadLanguage();
 
@@ -9,15 +10,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     await api("/api/image_train/clear", { method: "POST", body: "{}" });
 
     await loadAlgorithms();
-    await loadImageAlgorithms();
     await loadModels();
     await loadImageModels();
     startModelRefresh();
     startImageModelRefresh();
     updateSplitBar();
-    updateImgSplitBar();
     toggleValStrategy();
-    toggleImgValStrategy();
+    updateImgSplitBar();
+    updateImgSplitCounts();
   } catch (err) {
     outputLog.textContent = String(err.message || err);
   }

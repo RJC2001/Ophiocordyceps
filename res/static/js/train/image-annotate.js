@@ -1,5 +1,3 @@
-let imgCurrentAlgorithms = {};
-
 const ctx = canvas.getContext("2d");
 
 let offscreenCanvas = null;
@@ -17,191 +15,12 @@ let imgState = {
   interactionMode: 'idle',
   resizeHandle: null,
   dragOrigAnn: null,
+  pendingHistory: null,
   shapeMode: 'rect',
   polygonPoints: [],
   polygonCursorX: 0,
   polygonCursorY: 0,
 };
-
-// ── Image Algorithms ──
-
-async function loadImageAlgorithms() {
-  imgCurrentAlgorithms = await api("/api/image_algorithms") || {};
-  imgAlgorithmSelect.innerHTML = "";
-  for (const [key, cfg] of Object.entries(imgCurrentAlgorithms)) {
-    if (cfg.available === false) continue;
-    const opt = document.createElement("option");
-    opt.value = key;
-    opt.textContent = t("img_algo_label_" + key) || cfg.label || key;
-    imgAlgorithmSelect.appendChild(opt);
-  }
-  renderImgHyperParams();
-  updateImgTooltip();
-}
-
-function updateImgTooltip() {
-  const algoKey = imgAlgorithmSelect.value;
-  const cfg = imgCurrentAlgorithms[algoKey];
-  if (cfg && cfg.description) {
-    imgAlgoTooltipText.textContent = t("img_algo_desc_" + algoKey) || cfg.description;
-    imgAlgoTooltipIcon.style.display = "inline-flex";
-  } else {
-    imgAlgoTooltipText.textContent = "";
-    imgAlgoTooltipIcon.style.display = "none";
-  }
-}
-
-function renderImgHyperParams() {
-  const algoKey = imgAlgorithmSelect.value;
-  const cfg = imgCurrentAlgorithms[algoKey];
-  if (!cfg || !cfg.params) { imgHyperParams.innerHTML = ""; return; }
-
-  let html = '<p class="params-title">' + t("hyperparams_title") + '</p>';
-  for (const [key, param] of Object.entries(cfg.params)) {
-    const label = t("param_" + key) || key.replace(/_/g, " ");
-    const val = param.default;
-    if (param.type === "int") {
-      html += `<label class="param-field"><span>${label}</span><input type="number" name="imgparam_${key}" value="${val}"${param.min !== undefined ? ` min="${param.min}"` : ""}${param.max !== undefined ? ` max="${param.max}"` : ""} step="1"></label>`;
-    } else if (param.type === "float") {
-      html += `<label class="param-field"><span>${label}</span><input type="number" name="imgparam_${key}" value="${val}"${param.min !== undefined ? ` min="${param.min}"` : ""}${param.max !== undefined ? ` max="${param.max}"` : ""} step="any"></label>`;
-    } else if (param.type === "select") {
-      html += `<label class="param-field"><span>${label}</span><select name="imgparam_${key}">`;
-      for (const opt of (param.options || [])) {
-        html += `<option value="${opt}"${opt === val ? " selected" : ""}>${opt}</option>`;
-      }
-      html += `</select></label>`;
-    } else if (param.type === "string") {
-      html += `<label class="param-field"><span>${label}</span><input type="text" name="imgparam_${key}" value="${val}" placeholder="${param.hint || ""}"></label>`;
-    }
-  }
-  imgHyperParams.innerHTML = html;
-}
-
-imgAlgorithmSelect.addEventListener("change", () => {
-  renderImgHyperParams();
-  updateImgTooltip();
-});
-
-// ── Image dual slider ──
-
-function updateImgSplitBar() {
-  if (!imgThumbTrain || !imgThumbTest || !imgFillTrain || !imgFillVal || !imgFillTest) return;
-  const t = parseFloat(imgThumbTrain.style.left) || 70;
-  const e = parseFloat(imgThumbTest.style.left) || 85;
-  const train = t;
-  const val = e - t;
-  const test = 100 - e;
-  imgFillTrain.style.width = train + "%";
-  imgFillTrain.textContent = Math.round(train) + "%";
-  imgFillVal.style.width = val + "%";
-  imgFillVal.textContent = Math.round(val) + "%";
-  imgFillTest.style.width = test + "%";
-  imgFillTest.textContent = Math.round(test) + "%";
-  updateImgLockedStates();
-}
-
-function updateImgLockedStates() {
-  if (!imgState || !imgState.images.length) return;
-  const valRb = document.querySelector('input[name="img_val_strategy"]:checked');
-  if (valRb && valRb.value === "kfold") {
-    imgState.images.forEach(img => { img.locked = false; img.split = "train"; });
-    updateNavButtons();
-    return;
-  }
-  const trainPctLeft = parseFloat(imgThumbTrain.style.left) || 70;
-  const testPctLeft = parseFloat(imgThumbTest.style.left) || 85;
-  const test = 100 - testPctLeft;
-  const val = testPctLeft - trainPctLeft;
-  const total = imgState.images.length;
-  // Same logic as backend: round for test/val, train absorbs leftovers
-  let testCount = Math.round(total * test / 100);
-  let valCount = Math.round(total * val / 100);
-  if (testCount + valCount > total) {
-    if (val <= test) valCount = total - testCount; else testCount = total - valCount;
-  }
-  const trainCount = total - testCount - valCount;
-  imgState.images.forEach((img, i) => {
-    img.locked = (i >= total - testCount);
-    if (img.locked) {
-      img.split = "test";
-    } else if (i >= total - testCount - valCount) {
-      img.split = "val";
-    } else {
-      img.split = "train";
-    }
-  });
-  updateNavButtons();
-}
-
-(function initImgSlider() {
-  if (!imgDualSlider || !imgThumbTrain || !imgThumbTest) return;
-  let activeThumb = null;
-
-  function posFromMouse(clientX) {
-    const rect = imgDualSlider.getBoundingClientRect();
-    return ((clientX - rect.left) / rect.width) * 100;
-  }
-
-  function onDown(e) {
-    const target = e.target.closest(".dual-thumb");
-    if (!target) return;
-    activeThumb = target;
-    e.preventDefault();
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }
-
-  function onMove(e) {
-    if (!activeThumb) return;
-    let pct = posFromMouse(e.clientX);
-    pct = Math.max(5, Math.min(95, pct));
-    const t = parseFloat(imgThumbTrain.style.left) || 70;
-    const e2 = parseFloat(imgThumbTest.style.left) || 85;
-    if (activeThumb === imgThumbTrain) {
-      pct = Math.min(pct, e2 - 5);
-    } else {
-      pct = Math.max(pct, t + 5);
-    }
-    activeThumb.style.left = Math.round(pct) + "%";
-    updateImgSplitBar();
-    updateImgLockedStates();
-    updateImageList();
-    if (imgState.images[imgState.currentIndex]?.locked) {
-      for (let i = imgState.images.length - 1; i >= 0; i--) {
-        if (!imgState.images[i].locked) { selectImage(i); break; }
-      }
-    }
-  }
-
-  function onUp() {
-    activeThumb = null;
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
-  }
-
-  imgDualSlider.addEventListener("mousedown", onDown);
-  updateImgSplitBar();
-})();
-
-// ── Image val strategy toggle ──
-
-function toggleImgValStrategy() {
-  const val = document.querySelector('input[name="img_val_strategy"]:checked');
-  const splitBar = document.getElementById("imgSplitBarSection");
-  const kfoldConfig = document.getElementById("imgKfoldConfig");
-  if (val && val.value === "kfold") {
-    splitBar.style.display = "none";
-    kfoldConfig.style.display = "";
-  } else {
-    splitBar.style.display = "";
-    kfoldConfig.style.display = "none";
-  }
-  updateImageList();
-}
-
-document.querySelectorAll('input[name="img_val_strategy"]').forEach(rb => {
-  rb.addEventListener("change", toggleImgValStrategy);
-});
 
 // ── Image Upload ──
 
@@ -241,10 +60,7 @@ function handleImageFile(file) {
         height: img.height,
         annotations: [],
         uploaded: false,
-        locked: false,
-        split: "train",
       });
-      updateImgLockedStates();
       updateImageList();
       if (imgState.images.length === 1) {
         selectImage(0);
@@ -259,7 +75,6 @@ function handleImageFile(file) {
 }
 
 function updateImageList() {
-  updateImgLockedStates();
   const imgs = imgState.images;
   if (imgs.length === 0) {
     imgList.style.display = "none";
@@ -268,8 +83,8 @@ function updateImageList() {
     imgTrainSection.style.display = "none";
     imgOutputSection.style.display = "none";
     imgResultsSection.style.display = "none";
-    imgPredSection.style.display = "none";
     imgTestGallerySection.style.display = "none";
+    if (typeof updateImgSplitCounts === "function") updateImgSplitCounts();
     return;
   }
 
@@ -278,16 +93,21 @@ function updateImageList() {
   imgAnnotateSection.style.display = "";
   imgTrainSection.style.display = "";
 
+  // The split (and therefore the locked TEST images) always follows the
+  // current order of the list.  Recalculate before rendering thumbnails.
+  if (typeof syncImgSplitState === "function") syncImgSplitState();
+
   imgThumbnails.innerHTML = "";
   imgs.forEach((imgData, i) => {
     const thumb = document.createElement("div");
-    const isLocked = imgData.locked;
-    thumb.className = "img-thumb" + (i === imgState.currentIndex ? " active" : "") + (isLocked ? " img-thumb-locked" : "");
+    const split = imgData.split || "train";
+    thumb.className = "img-thumb" + (i === imgState.currentIndex ? " active" : "") +
+      (imgData.locked ? " img-thumb-locked" : "");
     thumb.innerHTML = `<img src="${imgData.dataUrl}" alt="${imgData.filename}"><span class="img-thumb-name">${imgData.filename}</span>`;
-    const label = document.createElement("span");
-    label.className = "img-thumb-label " + (imgData.split || "train");
-    label.textContent = (imgData.split || "train").toUpperCase();
-    thumb.appendChild(label);
+    const splitLabel = document.createElement("span");
+    splitLabel.className = "img-thumb-label " + split;
+    splitLabel.textContent = t("img_split_short_" + split) || split;
+    thumb.appendChild(splitLabel);
     if (imgData.annotations.length > 0) {
       const badge = document.createElement("span");
       badge.className = "img-thumb-badge";
@@ -323,74 +143,162 @@ function updateImageList() {
       updateImageList();
       updateNavButtons();
       if (imgState.images.length > 0) {
-        selectImage(Math.min(imgState.currentIndex, imgState.images.length - 1));
+        const preferred = Math.min(imgState.currentIndex, imgState.images.length - 1);
+        const target = _nearestUnlocked(preferred, -1);
+        if (target >= 0) selectImage(target);
       }
     });
     thumb.appendChild(delBtn);
-    if (isLocked) {
-      thumb.style.cursor = "not-allowed";
-    } else {
+    if (!imgData.locked) {
       thumb.addEventListener("click", () => selectImage(i));
+      thumb.draggable = true;
     }
-    thumb.draggable = true;
     thumb.dataset.index = i;
 
-    thumb.addEventListener("dragstart", (e) => {
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", i);
-      thumb.classList.add("dragging");
-    });
-
-    thumb.addEventListener("dragend", () => {
-      document.querySelectorAll(".img-thumb.dragging, .img-thumb.drag-over").forEach(el => {
-        el.classList.remove("dragging", "drag-over");
+    if (!imgData.locked) {
+      thumb.addEventListener("dragstart", (e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", i);
+        thumb.classList.add("dragging");
       });
-    });
 
-    thumb.addEventListener("dragenter", (e) => {
-      e.preventDefault();
-      if (!thumb.classList.contains("dragging")) {
-        thumb.classList.add("drag-over");
-      }
-    });
+      thumb.addEventListener("dragend", () => {
+        document.querySelectorAll(".img-thumb.dragging, .img-thumb.drag-over").forEach(el => {
+          el.classList.remove("dragging", "drag-over");
+        });
+      });
 
-    thumb.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-    });
-
-    thumb.addEventListener("dragleave", () => {
-      thumb.classList.remove("drag-over");
-    });
-
-    thumb.addEventListener("drop", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      thumb.classList.remove("drag-over");
-
-      const fromIdx = parseInt(e.dataTransfer.getData("text/plain"));
-      const toIdx = parseInt(thumb.dataset.index);
-      if (isNaN(fromIdx) || isNaN(toIdx) || fromIdx === toIdx) return;
-
-      const [moved] = imgState.images.splice(fromIdx, 1);
-      imgState.images.splice(toIdx, 0, moved);
-
-      if (imgState.currentIndex === fromIdx) {
-        imgState.currentIndex = toIdx;
-      } else if (fromIdx < toIdx) {
-        if (imgState.currentIndex > fromIdx && imgState.currentIndex <= toIdx) {
-          imgState.currentIndex--;
+      thumb.addEventListener("dragenter", (e) => {
+        e.preventDefault();
+        if (!thumb.classList.contains("dragging")) {
+          thumb.classList.add("drag-over");
         }
-      } else {
-        if (imgState.currentIndex >= toIdx && imgState.currentIndex < fromIdx) {
-          imgState.currentIndex++;
-        }
-      }
+      });
 
-      updateImageList();
-    });
+      thumb.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      });
+
+      thumb.addEventListener("dragleave", () => {
+        thumb.classList.remove("drag-over");
+      });
+
+      thumb.addEventListener("drop", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        thumb.classList.remove("drag-over");
+
+        const fromIdx = parseInt(e.dataTransfer.getData("text/plain"));
+        const toIdx = parseInt(thumb.dataset.index);
+        if (isNaN(fromIdx) || isNaN(toIdx) || fromIdx === toIdx) return;
+        // Never move a locked TEST image.
+        if (imgState.images[fromIdx] && imgState.images[fromIdx].locked) return;
+
+        const [moved] = imgState.images.splice(fromIdx, 1);
+        imgState.images.splice(toIdx, 0, moved);
+
+        if (imgState.currentIndex === fromIdx) {
+          imgState.currentIndex = toIdx;
+        } else if (fromIdx < toIdx) {
+          if (imgState.currentIndex > fromIdx && imgState.currentIndex <= toIdx) {
+            imgState.currentIndex--;
+          }
+        } else {
+          if (imgState.currentIndex >= toIdx && imgState.currentIndex < fromIdx) {
+            imgState.currentIndex++;
+          }
+        }
+
+        updateImageList();
+        const current = imgState.images[imgState.currentIndex];
+        if (current && current.locked) {
+          for (let i = imgState.images.length - 1; i >= 0; i--) {
+            if (!imgState.images[i].locked) {
+              selectImage(i);
+              break;
+            }
+          }
+        }
+      });
+    }
     imgThumbnails.appendChild(thumb);
   });
+
+  if (typeof updateImgSplitCounts === "function") updateImgSplitCounts();
+}
+
+function _cloneAnnotations(annotations) {
+  return JSON.parse(JSON.stringify(annotations || []));
+}
+
+function _annotationHistory(imgData) {
+  if (!imgData._undoHistory) imgData._undoHistory = [];
+  if (!imgData._redoHistory) imgData._redoHistory = [];
+  return { undo: imgData._undoHistory, redo: imgData._redoHistory };
+}
+
+function _annotationsEqual(a, b) {
+  return JSON.stringify(a || []) === JSON.stringify(b || []);
+}
+
+function _recordAnnotationChange(imgData, before) {
+  if (!imgData) return;
+  const history = _annotationHistory(imgData);
+  history.undo.push(before || _cloneAnnotations(imgData.annotations));
+  if (history.undo.length > 100) history.undo.shift();
+  history.redo.length = 0;
+}
+
+function _beginAnnotationChange(imgData) {
+  imgState.pendingHistory = _cloneAnnotations(imgData.annotations);
+}
+
+function _commitAnnotationChange(imgData) {
+  if (!imgData || !imgState.pendingHistory) {
+    imgState.pendingHistory = null;
+    return;
+  }
+  if (!_annotationsEqual(imgState.pendingHistory, imgData.annotations)) {
+    _recordAnnotationChange(imgData, imgState.pendingHistory);
+  }
+  imgState.pendingHistory = null;
+}
+
+function _applyAnnotationHistory(imgData, from, to) {
+  const history = _annotationHistory(imgData);
+  if (from.length === 0) return;
+  to.push(_cloneAnnotations(imgData.annotations));
+  imgData.annotations = from.pop();
+  imgState.selectedAnnotation = -1;
+  imgState.polygonPoints = [];
+  imgState.interactionMode = 'idle';
+  imgState.currentRect = null;
+  updateBoxCount();
+  updateImageList();
+  renderCurrentFrame();
+}
+
+function undoAnnotation() {
+  const imgData = imgState.images[imgState.currentIndex];
+  if (!imgData || imgData.locked) return;
+  const history = _annotationHistory(imgData);
+  _applyAnnotationHistory(imgData, history.undo, history.redo);
+}
+
+function redoAnnotation() {
+  const imgData = imgState.images[imgState.currentIndex];
+  if (!imgData || imgData.locked) return;
+  const history = _annotationHistory(imgData);
+  _applyAnnotationHistory(imgData, history.redo, history.undo);
+}
+
+function updateHistoryButtons() {
+  const imgData = imgState.images[imgState.currentIndex];
+  const history = imgData ? _annotationHistory(imgData) : { undo: [], redo: [] };
+  const blocked = !imgData || imgData.locked;
+  undoBoxBtn.disabled = blocked || history.undo.length === 0;
+  redoBoxBtn.disabled = blocked || history.redo.length === 0;
 }
 
 function selectImage(index) {
@@ -401,6 +309,7 @@ function selectImage(index) {
   imgState.interactionMode = 'idle';
   imgState.resizeHandle = null;
   imgState.dragOrigAnn = null;
+  imgState.pendingHistory = null;
   imgState.currentRect = null;
   imgState.isDrawing = false;
 
@@ -410,16 +319,23 @@ function selectImage(index) {
   updateBoxCount();
 }
 
+function _nearestUnlocked(from, dir = 1) {
+  let i = from;
+  while (i >= 0 && i < imgState.images.length) {
+    if (!imgState.images[i].locked) return i;
+    i += dir;
+  }
+  return -1;
+}
+
 function updateNavButtons() {
   const idx = imgState.currentIndex;
   const total = imgState.images.length;
   if (total === 0) { prevImgBtn.disabled = true; nextImgBtn.disabled = true; imgCounter.textContent = "0 / 0"; return; }
-  let prev = idx - 1;
-  while (prev >= 0 && imgState.images[prev].locked) prev--;
-  let next = idx + 1;
-  while (next < total && imgState.images[next].locked) next++;
+  const prev = _nearestUnlocked(idx - 1, -1);
+  const next = _nearestUnlocked(idx + 1, 1);
   prevImgBtn.disabled = prev < 0;
-  nextImgBtn.disabled = next >= total;
+  nextImgBtn.disabled = next < 0;
   imgCounter.textContent = `${idx + 1} / ${total}`;
 }
 
@@ -428,10 +344,17 @@ function updateBoxCount() {
   if (imgData) {
     boxCount.textContent = imgData.annotations.length;
   }
+  updateHistoryButtons();
 }
 
-prevImgBtn.addEventListener("click", () => selectImage(imgState.currentIndex - 1));
-nextImgBtn.addEventListener("click", () => selectImage(imgState.currentIndex + 1));
+prevImgBtn.addEventListener("click", () => {
+  const prev = _nearestUnlocked(imgState.currentIndex - 1, -1);
+  if (prev >= 0) selectImage(prev);
+});
+nextImgBtn.addEventListener("click", () => {
+  const next = _nearestUnlocked(imgState.currentIndex + 1, 1);
+  if (next >= 0) selectImage(next);
+});
 
 clearAllImagesBtn.addEventListener("click", () => {
   if (imgState.images.length === 0) return;
@@ -464,9 +387,9 @@ document.querySelectorAll(".shape-btn").forEach(btn => {
     if (placeholder && placeholder.style.display !== "none") {
       const p = placeholder.querySelector("p:first-child");
       if (p) {
-        if (imgState.shapeMode === "rect") p.textContent = "Click and drag to draw a rectangle.";
-        else if (imgState.shapeMode === "circle") p.textContent = "Click and drag to draw an ellipse.";
-        else p.textContent = "Click to place vertices, double-click to close polygon.";
+        if (imgState.shapeMode === "rect") p.textContent = t("img_canvas_draw_rect") || "Click and drag to draw a rectangle.";
+        else if (imgState.shapeMode === "circle") p.textContent = t("img_canvas_draw_circle") || "Click and drag to draw an ellipse.";
+        else p.textContent = t("img_canvas_draw_polygon") || "Click to place vertices, double-click to close polygon.";
       }
     }
   });
@@ -480,21 +403,6 @@ function renderCanvas(index) {
   canvas.style.display = "";
   imgState.polygonPoints = [];
 
-  if (imgData.locked) {
-    canvas.style.pointerEvents = "none";
-    const container = canvas.parentElement;
-    canvas.width = container.clientWidth - 4;
-    canvas.height = 60;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "rgba(239,68,68,0.08)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#ef4444";
-    ctx.font = "bold 14px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("TEST — image locked, not available for annotation", canvas.width / 2, canvas.height / 2);
-    return;
-  }
   canvas.style.pointerEvents = "";
 
   const container = canvas.parentElement;
@@ -748,6 +656,7 @@ canvas.addEventListener("mousedown", (e) => {
   const scale = canvas._scale || 1;
   const imgData = imgState.images[imgState.currentIndex];
   if (!imgData) return;
+  if (imgData.locked) return; // TEST images are held out and cannot be annotated
 
   // 1. Always check resize handles first (any mode)
   if (imgState.selectedAnnotation >= 0 && imgState.selectedAnnotation < imgData.annotations.length) {
@@ -760,6 +669,7 @@ canvas.addEventListener("mousedown", (e) => {
         imgState.dragStartX = cx;
         imgState.dragStartY = cy;
         imgState.dragOrigAnn = JSON.parse(JSON.stringify(ann));
+        _beginAnnotationChange(imgData);
         return;
       }
     }
@@ -773,6 +683,7 @@ canvas.addEventListener("mousedown", (e) => {
       imgState.dragStartX = cx;
       imgState.dragStartY = cy;
       imgState.dragOrigAnn = JSON.parse(JSON.stringify(imgData.annotations[i]));
+      _beginAnnotationChange(imgData);
       renderCurrentFrame();
       return;
     }
@@ -956,6 +867,7 @@ function _closePolygon(imgData) {
   }
 
   const idx = imgData.annotations.length;
+  _recordAnnotationChange(imgData);
   imgData.annotations.push({
     type: "polygon",
     points: pts,
@@ -1002,6 +914,7 @@ canvas.addEventListener("mouseup", () => {
         const y = Math.round(r.y / scale);
         const w = Math.round(r.w / scale);
         const h = Math.round(r.h / scale);
+        _recordAnnotationChange(imgData);
         if (imgState.shapeMode === "circle") {
           imgData.annotations.push({ type: "circle", x, y, width: w, height: h });
         } else {
@@ -1019,6 +932,8 @@ canvas.addEventListener("mouseup", () => {
   }
 
   if (imgState.interactionMode === 'move' || imgState.interactionMode === 'resize') {
+    const imgData = imgState.images[imgState.currentIndex];
+    _commitAnnotationChange(imgData);
     imgState.interactionMode = 'idle';
     imgState.dragOrigAnn = null;
     imgState.resizeHandle = null;
@@ -1054,22 +969,37 @@ canvas.addEventListener("mouseleave", () => {
 // ── Annotation tools ──
 
 undoBoxBtn.addEventListener("click", () => {
-  const imgData = imgState.images[imgState.currentIndex];
-  if (!imgData || imgData.annotations.length === 0) return;
-  if (imgData.locked) return;
-  imgData.annotations.pop();
-  updateBoxCount();
-  updateImageList();
-  renderBaseLayer(imgState.currentIndex);
+  undoAnnotation();
+});
+
+redoBoxBtn.addEventListener("click", () => {
+  redoAnnotation();
 });
 
 clearBoxesBtn.addEventListener("click", () => {
   const imgData = imgState.images[imgState.currentIndex];
-  if (!imgData || imgData.annotations.length === 0) return;
-  if (imgData.locked) return;
+  if (!imgData || imgData.locked || imgData.annotations.length === 0) return;
   if (!confirm(t("img_clear_boxes_confirm") || "Clear all boxes on this image?")) return;
+  _recordAnnotationChange(imgData);
   imgData.annotations = [];
   updateBoxCount();
   updateImageList();
   renderBaseLayer(imgState.currentIndex);
 });
+
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const target = e.target;
+  const tag = (target && target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select" || (target && target.isContentEditable)) return;
+  const key = (e.key || "").toLowerCase();
+  if (key === "z" && !e.shiftKey) {
+    e.preventDefault();
+    undoAnnotation();
+  } else if (key === "y" || (key === "z" && e.shiftKey)) {
+    e.preventDefault();
+    redoAnnotation();
+  }
+});
+
+updateHistoryButtons();

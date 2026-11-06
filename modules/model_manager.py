@@ -13,7 +13,7 @@ def _ensure_subdir(subdir: str) -> Path:
 
 
 def _subdir_for_type(model_type: str) -> str:
-    if model_type == "image_detector":
+    if model_type in ("image_detector", "layout_detector"):
         return "image"
     if model_type == "csv" or model_type == "unknown":
         return "csv"

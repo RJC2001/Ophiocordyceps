@@ -1,3 +1,10 @@
+"""Training for the normalized-layout image detector.
+
+The user annotates the same set of objects on a modest number of images.
+Training then simply learns each object's position and size relative to the
+anchor.  It is fast, deterministic and needs no hyper-parameters.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -5,107 +12,26 @@ import io
 import json
 import threading
 import uuid
-import warnings
 from pathlib import Path
 from typing import Any
 
 import joblib
 import numpy as np
-from PIL import Image, ImageDraw
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.exceptions import ConvergenceWarning
-from sklearn.svm import SVC
-from sklearn.linear_model import LogisticRegression
-from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import train_test_split, KFold
+from PIL import Image
 
 from core.config import MODELS_IMAGE_DIR, IMGTRAIN_DIR
+from modules import layout_detector as ld
 
 _image_training_states: dict[str, dict[str, Any]] = {}
 
-# Feature-vector resolution. The detection window can be large (e.g. a 280px
-# circle), but every window is resized to this fixed size before being
-# flattened into a feature vector, so the vector length — and therefore memory
-# and CPU — stays bounded no matter how big the annotated objects are. Without
-# this, a large annotation produced window*window*3 = hundreds of thousands of
-# features per sample and could exhaust memory and freeze the machine.
-FEATURE_SIZE = 64
-
-IMAGE_ALGORITHMS: dict[str, Any] = {
-    "random_forest": {
-        "label": "Random Forest",
-        "description": "Ensemble of decision trees. Handles non-linear relationships, resistant to overfitting. Best default for small datasets (~20 images) — trains fast and generalizes well without tuning.",
-        "params": {
-            "n_estimators": {"type": "int", "default": 200},
-            "max_depth": {"type": "int", "default": 0},
-        },
-    },
-    "cnn": {
-        "label": "CNN (Convolutional Neural Network)",
-        "description": "Convolutional Neural Network for image recognition. Uses a multi-layer perceptron with deep architecture optimized for visual pattern recognition.",
-        "params": {
-            "conv_layers": {
-                "type": "string",
-                "default": "512,256,128",
-                "hint": "comma-separated layer sizes, e.g. 512,256,128",
-            },
-            "learning_rate": {
-                "type": "float",
-                "default": 0.001,
-                "min": 0.00001,
-                "max": 1.0,
-            },
-            "epochs": {"type": "int", "default": 200, "min": 1, "max": 5000},
-            "batch_size": {"type": "int", "default": 0, "min": 0, "max": 1024},
-        },
-    },
-    "logistic": {
-        "label": "Logistic Regression",
-        "description": "Simple, fast, interpretable. Logistic Regression for classification, Linear Regression for regression. Works best with linear relationships.",
-        "params": {
-            "C": {"type": "float", "default": 1.0, "min": 0.001, "max": 100.0},
-        },
-    },
-    "svm": {
-        "label": "SVM",
-        "description": "Support Vector Machine. Effective in high-dimensional spaces. Works well with clear margins of separation. Kernel trick handles non-linearity.",
-        "params": {
-            "C": {"type": "float", "default": 1.0, "min": 0.001, "max": 100.0},
-            "kernel": {
-                "type": "select",
-                "default": "rbf",
-                "options": ["linear", "rbf", "poly", "sigmoid"],
-            },
-        },
-    },
-    "neural_network": {
-        "label": "Neural Network (MLP)",
-        "description": "Multi-layer Perceptron. Can learn complex non-linear patterns. Requires more data and hyperparameter tuning. Slower training.",
-        "params": {
-            "hidden_layers": {
-                "type": "string",
-                "default": "100",
-                "hint": "comma-separated, e.g. 100,50",
-            },
-            "learning_rate": {
-                "type": "float",
-                "default": 0.001,
-                "min": 0.00001,
-                "max": 1.0,
-            },
-            "epochs": {"type": "int", "default": 200, "min": 1, "max": 5000},
-            "batch_size": {"type": "int", "default": 0, "min": 0, "max": 1024},
-        },
-    },
-}
-
 
 def get_available_image_algorithms() -> dict[str, Any]:
-    return {k: dict(v, available=True) for k, v in IMAGE_ALGORITHMS.items()}
+    """Kept for API compatibility; the layout detector has no algorithms."""
+    return {}
 
 
 def _init_state(session_id: str) -> dict[str, Any]:
-    state = _image_training_states.setdefault(session_id, {
+    return _image_training_states.setdefault(session_id, {
         "images": {},
         "annotations": {},
         "status": "idle",
@@ -113,34 +39,34 @@ def _init_state(session_id: str) -> dict[str, Any]:
         "model_path": None,
         "error": None,
         "metrics": None,
+        "test_image_ids": [],
+        "_predictions": None,
+        "_cancel": False,
     })
-    return state
 
 
 def upload_training_image(session_id: str, filename: str, b64_data: str) -> dict[str, Any]:
     raw = base64.b64decode(b64_data)
     ext = Path(filename).suffix.lower()
-    if ext not in (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"):
+    if ext not in (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff"):
         raise ValueError(f"Unsupported image format: {ext}")
 
     img_id = uuid.uuid4().hex[:8]
     IMGTRAIN_DIR.mkdir(parents=True, exist_ok=True)
-    safe = f"{session_id}_{img_id}{ext}"
-    dest = IMGTRAIN_DIR / safe
+    dest = IMGTRAIN_DIR / f"{session_id}_{img_id}{ext}"
     dest.write_bytes(raw)
 
     img = Image.open(io.BytesIO(raw))
-    w, h = img.size
+    width, height = img.size
 
     state = _init_state(session_id)
     state["images"][img_id] = {
         "path": str(dest),
         "filename": filename,
-        "width": w,
-        "height": h,
+        "width": width,
+        "height": height,
     }
-
-    return {"image_id": img_id, "filename": filename, "width": w, "height": h}
+    return {"image_id": img_id, "filename": filename, "width": width, "height": height}
 
 
 def delete_training_image(session_id: str, image_id: str) -> dict[str, Any]:
@@ -148,36 +74,37 @@ def delete_training_image(session_id: str, image_id: str) -> dict[str, Any]:
     img_info = state["images"].pop(image_id, None)
     state["annotations"].pop(image_id, None)
     if img_info:
-        p = Path(img_info["path"])
-        if p.exists():
-            p.unlink()
+        path = Path(img_info["path"])
+        if path.exists():
+            path.unlink()
     return {"deleted": True}
 
 
 def save_annotations(session_id: str, image_id: str, annotations: list[dict]) -> dict[str, Any]:
     state = _init_state(session_id)
+    if image_id not in state["images"]:
+        raise ValueError("Unknown image_id; upload the image first")
     state["annotations"][image_id] = annotations
     return {"saved": True, "count": len(annotations)}
 
 
 def get_image_training_data(session_id: str) -> dict[str, Any]:
     state = _init_state(session_id)
-    imgs = {}
-    for img_id, info in state["images"].items():
-        anns = state["annotations"].get(img_id, [])
-        imgs[img_id] = {**info, "annotations": anns}
-    return {
-        "images": imgs,
-        "status": state.get("status", "idle"),
-    }
+    images: dict[str, Any] = {}
+    for image_id, info in state["images"].items():
+        images[image_id] = {
+            **info,
+            "annotations": state["annotations"].get(image_id, []),
+        }
+    return {"images": images, "status": state.get("status", "idle")}
 
 
 def clear_image_training(session_id: str) -> dict[str, Any]:
     state = _init_state(session_id)
-    for img_id, info in list(state["images"].items()):
-        p = Path(info["path"])
-        if p.exists():
-            p.unlink()
+    for info in list(state["images"].values()):
+        path = Path(info["path"])
+        if path.exists():
+            path.unlink()
     state["images"].clear()
     state["annotations"].clear()
     state["status"] = "idle"
@@ -185,56 +112,63 @@ def clear_image_training(session_id: str) -> dict[str, Any]:
     state["error"] = None
     state["metrics"] = None
     state["model_path"] = None
+    state["test_image_ids"] = []
     state["_predictions"] = None
+    state["_cancel"] = False
     if IMGTRAIN_DIR.exists():
-        for f in IMGTRAIN_DIR.iterdir():
-            if f.name.startswith(session_id):
-                f.unlink()
+        for path in IMGTRAIN_DIR.iterdir():
+            if path.name.startswith(session_id):
+                path.unlink(missing_ok=True)
     return {"cleared": True}
-
-
-def _feature_to_image(feature: np.ndarray, pw: int = 32, ph: int = 32) -> str:
-    n_features = feature.size
-    if n_features == pw * ph:
-        arr = (feature * 255).astype(np.uint8).reshape(ph, pw)
-        img = Image.fromarray(arr, mode="L")
-    elif n_features == pw * ph * 3:
-        arr = (feature * 255).astype(np.uint8).reshape(ph, pw, 3)
-        img = Image.fromarray(arr, mode="RGB")
-    else:
-        side = int(np.sqrt(n_features // 3))
-        arr = (feature * 255).astype(np.uint8).reshape(side, side, 3)
-        img = Image.fromarray(arr, mode="RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
 
 
 def start_image_training(
     session_id: str,
-    val_strategy: str = "simple",
-    val_size: float = 0.0,
-    test_size: float = 0.0,
-    algorithm: str = "random_forest",
-    neg_per_ann: int = 100,
-    params: dict[str, Any] | None = None,
-    shuffle: bool = True,
+    *,
+    val_size: float = 0.15,
+    test_size: float = 0.15,
+    shuffle: bool = False,
     random_state: int = 42,
-    k_folds: int = 5,
-    patch_size: int = 0,
     test_image_ids: list[str] | None = None,
-    stride: int = 0,
-    grayscale: bool = False,
-    feature_size: int = 0,
-    iou_threshold_neg: float = 0.0,
-    iou_threshold_nms: float = 0.0,
-    brightness_contrast_jitter: bool = False,
+    val_image_ids: list[str] | None = None,
+    detector_config: dict[str, Any] | None = None,
+    **_kwargs: Any,
 ) -> dict[str, Any]:
+    val_size = float(val_size)
+    test_size = float(test_size)
+    if val_size < 0 or test_size < 0:
+        raise ValueError("Validation/test split cannot be negative")
+    if val_size + test_size >= 1:
+        raise ValueError(
+            "Validation + test split must leave at least one training image. "
+            "Reduce the validation or test percentage."
+        )
+
+    explicit_test = None if test_image_ids is None else [str(v) for v in test_image_ids]
+    explicit_val = None if val_image_ids is None else [str(v) for v in val_image_ids]
+
     state = _init_state(session_id)
+    if state.get("status") == "running":
+        raise ValueError("Training is already running")
     state["_cancel"] = False
+    state["status"] = "running"
+    state["log"] = []
+    state["error"] = None
+    state["metrics"] = None
+    state["_predictions"] = None
+    state["test_image_ids"] = []
     thread = threading.Thread(
         target=_train_worker,
-        args=(session_id, val_strategy, val_size, test_size, algorithm, neg_per_ann, params, shuffle, random_state, k_folds, patch_size, test_image_ids, stride, grayscale, feature_size, iou_threshold_neg, iou_threshold_nms, brightness_contrast_jitter),
+        args=(
+            session_id,
+            val_size,
+            test_size,
+            bool(shuffle),
+            int(random_state),
+            explicit_test,
+            explicit_val,
+            ld.normalize_detector_config(detector_config),
+        ),
         daemon=True,
     )
     thread.start()
@@ -257,685 +191,346 @@ def get_image_training_status(session_id: str) -> dict[str, Any]:
         "model_path": state.get("model_path"),
         "test_image_ids": state.get("test_image_ids", []),
     }
-    preds = state.get("_predictions")
-    if preds is not None:
-        result["predictions"] = preds
-    raw = state.get("_raw_predictions")
-    if raw is not None:
-        result["raw_predictions"] = raw
+    predictions = state.get("_predictions")
+    if predictions is not None:
+        result["predictions"] = predictions
     return result
 
 
-def _log(state: dict[str, Any], msg: str) -> None:
-    state["log"].append(msg)
-    if len(state["log"]) > 500:
-        state["log"] = state["log"][-500:]
+def _log(state: dict[str, Any], message: str) -> None:
+    state.setdefault("log", []).append(message)
 
 
-def _extract_patch(img: Image.Image, x: int, y: int, w: int, h: int, pw: int = 32, ph: int = 32, grayscale: bool = False, ann_type: str = "rect", points: list[dict] | None = None) -> np.ndarray | None:
-    x, y, w, h = int(x), int(y), int(w), int(h)
-    x = max(0, x)
-    y = max(0, y)
-    w = min(w, img.width - x)
-    h = min(h, img.height - y)
-    if w <= 0 or h <= 0:
-        return None
-    patch = img.crop((x, y, x + w, y + h))
-    patch = patch.resize((pw, ph), Image.Resampling.LANCZOS)
-    patch = patch.convert("L" if grayscale else "RGB")
-    arr = np.array(patch, dtype=np.float32) / 255.0
+def _split_counts(total: int, val_size: float, test_size: float) -> tuple[int, int]:
+    """Return ``(validation_count, test_count)`` with stable priority.
 
-    if ann_type in ("circle", "polygon"):
-        mask_img = Image.new("L", (w, h), 0)
-        draw = ImageDraw.Draw(mask_img)
-        if ann_type == "circle":
-            draw.ellipse([0, 0, w - 1, h - 1], fill=255)
-        elif ann_type == "polygon" and points:
-            local_pts = [(p["x"] - x, p["y"] - y) for p in points]
-            draw.polygon(local_pts, fill=255)
-        mask_img = mask_img.resize((pw, ph), Image.Resampling.LANCZOS)
-        mask_arr = np.array(mask_img, dtype=np.float32) / 255.0
-        if grayscale:
-            arr = arr * mask_arr
-        else:
-            arr = arr * mask_arr[:, :, np.newaxis]
+    Uses largest-remainder apportionment over exact integer units, so floating
+    point noise can never decide which split receives a leftover image.  Ties
+    are resolved in favour of Train first, then Validation, then Test.
+    """
+    if total <= 0:
+        return 0, 0
 
-    return arr.flatten()
+    basis = 1_000_000
+    pcts = [
+        max(0, round((1.0 - val_size - test_size) * basis)),
+        max(0, round(val_size * basis)),
+        max(0, round(test_size * basis)),
+    ]
+    products = [total * pct for pct in pcts]
+    counts = [product // basis for product in products]
+    remainders = [product % basis for product in products]
+    order = sorted(range(3), key=lambda i: (-remainders[i], i))
+    leftover = total - sum(counts)
+    for index in order[:leftover]:
+        counts[index] += 1
 
+    def ensure_one(target: int, donors: list[int], minimum_total: int) -> None:
+        if total < minimum_total or pcts[target] <= 0 or counts[target] > 0:
+            return
+        for donor in donors:
+            if donor != target and counts[donor] > (1 if donor == 0 else 0):
+                counts[donor] -= 1
+                counts[target] += 1
+                return
 
-def _augment_patch(features: np.ndarray, pw: int, ph: int, brightness_contrast_jitter: bool = False) -> np.ndarray:
-    n = features.size
-    channels = n // (pw * ph)
-    img = features.reshape(ph, pw, channels)
-    if np.random.rand() < 0.5:
-        img = np.fliplr(img)
-    if np.random.rand() < 0.5:
-        img = np.flipud(img)
-    if np.random.rand() < 0.25:
-        k = np.random.randint(1, 4)
-        img = np.rot90(img, k)
-    if brightness_contrast_jitter:
-        brightness = np.random.uniform(0.8, 1.2)
-        contrast = np.random.uniform(0.8, 1.2)
-        img = img * contrast + 0.5 * (1 - contrast) + np.random.uniform(-0.1, 0.1)
-        img = np.clip(img, 0, 1)
-    return img.flatten()
+    # Training must keep at least one image whenever the dataset allows it.
+    ensure_one(0, [2, 1], 1)
+    # Test is the locked check set, so keep one image there when possible.
+    ensure_one(2, [0, 1], 2)
+    # Then keep a validation image when there is room for all three splits.
+    ensure_one(1, [0, 2], 3)
+    return counts[1], counts[2]
 
 
-def _iou(x1: float, y1: float, w1: float, h1: float, x2: float, y2: float, w2: float, h2: float) -> float:
-    left = max(x1, x2)
-    top = max(y1, y2)
-    right = min(x1 + w1, x2 + w2)
-    bottom = min(y1 + h1, y2 + h2)
-    if left < right and top < bottom:
-        inter = (right - left) * (bottom - top)
-        union = w1 * h1 + w2 * h2 - inter
-        return inter / union if union > 0 else 0
-    return 0
-
-
-def _point_in_polygon(px: float, py: float, points: list[dict]) -> bool:
-    inside = False
-    n = len(points)
-    for i in range(n):
-        x1, y1 = points[i]["x"], points[i]["y"]
-        x2, y2 = points[(i + 1) % n]["x"], points[(i + 1) % n]["y"]
-        if ((y1 > py) != (y2 > py)) and (px < (x2 - x1) * (py - y1) / (y2 - y1) + x1):
-            inside = not inside
-    return inside
-
-
-def _annotation_overlaps_patch(nx: float, ny: float, pw: float, ph: float, ann: dict) -> bool:
-    ax, ay = ann["x"], ann["y"]
-    aw, ah = ann["width"], ann["height"]
-    if nx + pw <= ax or nx >= ax + aw or ny + ph <= ay or ny >= ay + ah:
-        return False
-    ann_type = ann.get("type", "rect")
-    if ann_type == "rect":
-        return True
-    if ann_type == "circle":
-        cx = ax + aw / 2
-        cy = ay + ah / 2
-        rx = max(aw / 2, 1)
-        ry = max(ah / 2, 1)
-        for px, py in [(nx, ny), (nx + pw, ny), (nx, ny + ph), (nx + pw, ny + ph),
-                        (nx + pw / 2, ny + ph / 2)]:
-            dx = (px - cx) / rx
-            dy = (py - cy) / ry
-            if dx * dx + dy * dy <= 1:
-                return True
-        return False
-    if ann_type == "polygon":
-        pts = ann.get("points", [])
-        if not pts:
-            return True
-        for px, py in [(nx + pw / 2, ny + ph / 2), (nx, ny), (nx + pw, ny),
-                        (nx, ny + ph), (nx + pw, ny + ph)]:
-            if _point_in_polygon(px, py, pts):
-                return True
-        return False
-    return True
-
-
-def _create_classifier(algorithm: str, params: dict[str, Any] | None = None, random_state: int = 42):
-    p = dict(params) if params else {}
-
-    if algorithm == "svm":
-        kernel = str(p.get("kernel", "rbf"))
-        kwargs: dict[str, Any] = {
-            "C": float(p.get("C", 1.0)),
-            "kernel": kernel,
-            "random_state": random_state,
-        }
-        if kernel in ("rbf", "poly", "sigmoid"):
-            kwargs["gamma"] = "scale"
-        return SVC(**kwargs, probability=True, max_iter=2000)
-    elif algorithm == "logistic":
-        return LogisticRegression(
-            C=float(p.get("C", 1.0)),
-            random_state=random_state,
-            max_iter=2000,
-            n_jobs=-1,
-        )
-    elif algorithm in ("neural_network", "cnn"):
-        if algorithm == "cnn":
-            raw = str(p.get("conv_layers", "512,256,128"))
-        else:
-            raw = str(p.get("hidden_layers", "100"))
-        try:
-            hidden = tuple(int(x.strip()) for x in raw.split(",") if x.strip())
-        except ValueError:
-            hidden = (512, 256, 128) if algorithm == "cnn" else (100,)
-        return MLPClassifier(
-            hidden_layer_sizes=hidden,
-            learning_rate_init=float(p.get("learning_rate", 0.001)),
-            max_iter=int(p.get("epochs", 200)),
-            batch_size=int(p.get("batch_size", 0)) or "auto",
-            random_state=random_state,
-            early_stopping=True,
-            n_iter_no_change=10,
-            validation_fraction=0.1,
-            tol=1e-4,
-        )
-    else:
-        return RandomForestClassifier(
-            n_estimators=int(p.get("n_estimators", 100)),
-            max_depth=int(p.get("max_depth", 0)) or None,
-            random_state=random_state,
-            n_jobs=-1,
-        )
-
-
-def _nms_merge(predictions: list[dict[str, Any]], iou_threshold: float = 0.3) -> list[dict[str, Any]]:
-    if iou_threshold <= 0:
-        return predictions
-    if not predictions:
-        return []
-    by_img: dict[str, list[dict[str, Any]]] = {}
-    for p in predictions:
-        by_img.setdefault(p["image_id"], []).append(p)
-
-    merged: list[dict[str, Any]] = []
-    for img_id, boxes in by_img.items():
-        boxes.sort(key=lambda b: b.get("confidence", 0), reverse=True)
-        used = [False] * len(boxes)
-        for i in range(len(boxes)):
-            if used[i]:
-                continue
-            used[i] = True
-            best = boxes[i]
-            for j in range(i + 1, len(boxes)):
-                if used[j]:
-                    continue
-                bj = boxes[j]
-                iou = _iou(best["x"], best["y"], best["w"], best["h"],
-                           bj["x"], bj["y"], bj["w"], bj["h"])
-                if iou > iou_threshold:
-                    used[j] = True
-            merged.append({
-                "actual": 1,
-                "predicted": 1,
-                "sliding_window": best.get("sliding_window", False),
-                "image_id": img_id,
-                "x": best["x"],
-                "y": best["y"],
-                "w": best["w"],
-                "h": best["h"],
-                "confidence": best.get("confidence", 0),
-            })
-    return merged
-
-
-def _sliding_window(model: Any, img_info: dict, win_w: int, win_h: int, feat_w: int, feat_h: int, img_id: str, stride: int = 0, grayscale: bool = False, jitter: bool = True) -> list[dict[str, Any]]:
-    mode = "L" if grayscale else "RGB"
-    img_pil = Image.open(img_info["path"]).convert(mode)
-    img_arr = np.array(img_pil, dtype=np.float32) / 255.0
-    img_pil.close()
-    if grayscale:
-        img_h, img_w = img_arr.shape
-    else:
-        img_h, img_w, _ = img_arr.shape
-    if stride > 0:
-        stride_x = max(stride, 2)
-        stride_y = max(stride, 2)
-    else:
-        stride_x = max(win_w // 4, 2)
-        stride_y = max(win_h // 4, 2)
-    has_proba = hasattr(model, "predict_proba")
-    resize_needed = (feat_w, feat_h) != (win_w, win_h)
-
-    patches: list[np.ndarray] = []
-    coords: list[tuple[int, int]] = []
-    rng = np.random.RandomState()
-    for grid_y in range(0, img_h - win_h + 1, stride_y):
-        for grid_x in range(0, img_w - win_w + 1, stride_x):
-            if jitter:
-                jx = int(rng.randint(-stride_x // 3, stride_x // 3 + 1))
-                jy = int(rng.randint(-stride_y // 3, stride_y // 3 + 1))
-                px = max(0, min(img_w - win_w, grid_x + jx))
-                py = max(0, min(img_h - win_h, grid_y + jy))
-            else:
-                px, py = grid_x, grid_y
-            crop = img_arr[py:py+win_h, px:px+win_w]
-            if resize_needed:
-                cimg = Image.fromarray((crop * 255).astype(np.uint8)).resize((feat_w, feat_h), Image.Resampling.LANCZOS)
-                crop = np.asarray(cimg, dtype=np.float32) / 255.0
-            patches.append(crop.flatten())
-            coords.append((px, py))
-
-    if not patches:
-        return []
-
-    feat_matrix = np.array(patches)
-    if has_proba:
-        probabilities = model.predict_proba(feat_matrix)
-        classes = list(model.classes_)
-        pos_idx = classes.index(1) if 1 in classes else (classes.index(True) if True in classes else 1)
-        confidences = probabilities[:, pos_idx]
-    else:
-        predictions = model.predict(feat_matrix)
-        confidences = np.where(predictions == 1, 1.0, 0.0)
-
-    detections: list[dict[str, Any]] = []
-    for (x, y), confidence in zip(coords, confidences):
-        detections.append({
-            "actual": 1,
-            "predicted": 1,
-            "sliding_window": True,
-            "image_id": img_id,
-            "x": x, "y": y,
-            "w": win_w, "h": win_h,
-            "confidence": float(confidence),
-        })
-    return detections
-
-
-def _cancellable_fit(model: Any, X_train: np.ndarray, y_train: np.ndarray, cancelled_fn) -> bool:
-    if cancelled_fn():
-        return True
-    model.fit(X_train, y_train)
-    return False
-
-
-def _train_worker(session_id: str, val_strategy: str = "simple", val_size: float = 0.0, test_size: float = 0.0, algorithm: str = "random_forest", neg_per_ann: int = 100, params: dict[str, Any] | None = None, shuffle: bool = True, random_state: int = 42, k_folds: int = 5, patch_size: int = 0, test_image_ids_param: list[str] | None = None, stride: int = 0, grayscale: bool = False, feature_size: int = 0, iou_threshold_neg: float = 0.0, iou_threshold_nms: float = 0.0, brightness_contrast_jitter: bool = False) -> None:
+def _train_worker(
+    session_id: str,
+    val_size: float,
+    test_size: float,
+    shuffle: bool,
+    random_state: int,
+    test_image_ids: list[str] | None,
+    val_image_ids: list[str] | None,
+    detector_config: dict[str, Any],
+) -> None:
     state = _init_state(session_id)
-    state["status"] = "running"
-    state["log"] = []
-    state["error"] = None
-    state["_predictions"] = None
-    state["test_image_ids"] = []
-    warnings.filterwarnings("ignore", category=ConvergenceWarning)
-    log_fn = lambda msg: _log(state, msg)
-
-    def cancelled() -> bool:
-        if state.get("_cancel"):
-            log_fn("Training cancelled by user")
-            state["status"] = "cancelled"
-            return True
-        return False
-
-    if cancelled():
-        return
-
-    log_fn("Setting random seed...")
-    if random_state == -1:
-        random_state = None
-        np.random.seed()
-    else:
-        np.random.seed(random_state)
 
     try:
-        log_fn(f"Starting image training (algorithm={algorithm}, neg_per_ann={neg_per_ann}, seed={random_state})...")
+        state["status"] = "running"
+        _log(state, "Reading uploaded images...")
 
-        images = state.get("images", {})
-        annotations = state.get("annotations", {})
+        # Keep every uploaded image in the split.  Test images are deliberately
+        # unannotated: they are the "guess on unseen data" set.
+        entries: list[dict[str, Any]] = []
+        for image_id, info in state["images"].items():
+            boxes: list[tuple[float, float, float, float]] = []
+            for annotation in state["annotations"].get(image_id, []):
+                if not isinstance(annotation, dict):
+                    continue
+                box = ld.annotation_to_box(annotation)
+                if box is None:
+                    raise ValueError(
+                        f"{info['filename']}: one annotation is too small or invalid. "
+                        "Delete it and draw a proper box."
+                    )
+                boxes.append(box)
+            entries.append({
+                "image_id": image_id,
+                "filename": info["filename"],
+                "path": info["path"],
+                "boxes": boxes,
+            })
 
-        if not images:
-            raise ValueError("No images uploaded")
-        if not annotations:
-            raise ValueError("No annotations provided")
+        if not entries:
+            raise ValueError("Upload some images first.")
 
-        log_fn(f"Processing {len(images)} images...")
+        all_ids = [entry["image_id"] for entry in entries]
 
-        total_annotations = 0
-        if neg_per_ann == -1:
-            neg_per_ann = 10
-        neg_per_ann = max(neg_per_ann, 0)
-        X_list: list[np.ndarray] = []
-        y_list: list[int] = []
-        sample_meta: list[dict[str, Any]] = []
-
-        # Auto-compute patch dimensions from annotation sizes
-        if patch_size == 0:
-            ann_widths, ann_heights = [], []
-            for img_anns in annotations.values():
-                for ann in img_anns:
-                    ann_widths.append(ann["width"])
-                    ann_heights.append(ann["height"])
-            if ann_widths:
-                pw = int(np.median(ann_widths))
-                ph = int(np.median(ann_heights))
-            else:
-                pw = ph = 32
-            pw = max(8, min(512, pw))
-            ph = max(8, min(512, ph))
-            log_fn(f"Auto detection window: {pw}x{ph} (median of annotations)")
+        # The UI sends the exact test/validation image ids.  This keeps the
+        # locked thumbnails and the backend split in sync even when the user
+        # reorders images after a previous training run.
+        if test_image_ids is not None or val_image_ids is not None:
+            test_set = set(test_image_ids or [])
+            val_set = set(val_image_ids or []) - test_set
+            unknown = (test_set | val_set) - set(all_ids)
+            if unknown:
+                _log(state, f"Warning: ignoring {len(unknown)} unknown split image id(s).")
+            test_idx = [i for i, image_id in enumerate(all_ids) if image_id in test_set]
+            val_idx = [i for i, image_id in enumerate(all_ids) if image_id in val_set]
+            train_idx = [
+                i for i, image_id in enumerate(all_ids)
+                if image_id not in test_set and image_id not in val_set
+            ]
         else:
-            pw = ph = patch_size
+            n_val, n_test = _split_counts(len(entries), val_size, test_size)
+            order = list(range(len(entries)))
+            if shuffle and len(order) > 1:
+                rng = np.random.default_rng(random_state if random_state >= 0 else None)
+                order = [int(i) for i in rng.permutation(len(order))]
+            test_idx = sorted(order[:n_test])
+            val_idx = sorted(order[n_test:n_test + n_val])
+            train_idx = sorted(order[n_test + n_val:])
 
-        # Feature resolution is capped independently of the detection window so
-        # memory stays bounded even for large annotations (e.g. big circles).
-        fs = feature_size if feature_size > 0 else FEATURE_SIZE
-        fw = max(8, min(pw, fs))
-        fh = max(8, min(ph, fs))
-        if (fw, fh) != (pw, ph):
-            log_fn(f"Feature resolution: {fw}x{fh} (windows resized down from {pw}x{ph})")
+        if not train_idx:
+            raise ValueError(
+                "The split left no training images. Reduce the validation or test percentage."
+            )
 
-        for img_id, img_info in images.items():
-            img_annotations = annotations.get(img_id, [])
-            if not img_annotations:
-                continue
-            total_annotations += len(img_annotations)
-            log_fn(f"  {img_info['filename']}: {len(img_annotations)} annotations")
+        train_annotated_idx = [i for i in train_idx if entries[i]["boxes"]]
+        if not train_annotated_idx:
+            raise ValueError(
+                "No annotated images in the Train split. Draw the objects on at least one "
+                "training image (TEST images are locked on purpose)."
+            )
 
-            img = Image.open(img_info["path"])
+        counts = {len(entries[i]["boxes"]) for i in train_annotated_idx}
+        if len(counts) != 1:
+            detail = ", ".join(
+                f"{entries[i]['filename']}: {len(entries[i]['boxes'])}"
+                for i in train_annotated_idx
+            )
+            raise ValueError(
+                "Every annotated training image must contain the same number of boxes. "
+                f"Found: {detail}. Fix the annotations and train again."
+            )
 
-            for ann in img_annotations:
-                ann_type = ann.get("type", "rect")
-                points = ann.get("points") if ann_type == "polygon" else None
-                patch = _extract_patch(img, ann["x"], ann["y"], ann["width"], ann["height"], fw, fh, grayscale, ann_type, points)
-                if patch is not None:
-                    X_list.append(patch)
-                    y_list.append(1)
-                    sample_meta.append({"img_id": img_id, "x": ann["x"], "y": ann["y"], "w": ann["width"], "h": ann["height"]})
-                    for _ in range(3):
-                        aug = _augment_patch(patch, fw, fh, brightness_contrast_jitter)
-                        X_list.append(aug)
-                        y_list.append(1)
-                        sample_meta.append({"img_id": img_id, "x": ann["x"], "y": ann["y"], "w": ann["width"], "h": ann["height"]})
+        count = counts.pop()
+        val_annotated_idx = [i for i in val_idx if entries[i]["boxes"]]
+        val_eval_idx = [i for i in val_annotated_idx if len(entries[i]["boxes"]) == count]
+        if val_annotated_idx and len(val_eval_idx) != len(val_annotated_idx):
+            _log(
+                state,
+                "Warning: some validation images have a different box count; "
+                "only matching validation images are scored.",
+            )
 
-            img_w, img_h = img.size
-            neg_target = len(img_annotations) * neg_per_ann if neg_per_ann > 0 else 0
-            attempts = 0
-            neg_needed = neg_target
-            neg_added = 0
-            while neg_added < neg_needed and attempts < neg_needed * 50:
-                attempts += 1
-                nx = int(np.random.randint(0, max(img_w - pw, 1)))
-                ny = int(np.random.randint(0, max(img_h - ph, 1)))
+        _log(
+            state,
+            f"{len(entries)} images, {len(train_annotated_idx)} annotated training images, "
+            f"{count} boxes per image.",
+        )
+        _log(
+            state,
+            f"Split: train {len(train_idx)} ({len(train_annotated_idx)} annotated), "
+            f"validation {len(val_idx)} ({len(val_eval_idx)} scored), "
+            f"test {len(test_idx)} (locked, no annotations needed).",
+        )
+        if not val_idx:
+            _log(state, "Validation set is empty (increase its percentage or add images).")
+        if not test_idx:
+            _log(state, "Test set is empty (increase its percentage or add images).")
 
-                overlaps = False
-                iou_neg_thresh = iou_threshold_neg if iou_threshold_neg > 0 else 0.3
-                for ann in img_annotations:
-                    if _annotation_overlaps_patch(nx, ny, pw, ph, ann):
-                        iou = _iou(nx, ny, pw, ph, ann["x"], ann["y"], ann["width"], ann["height"])
-                        if iou > iou_neg_thresh:
-                            overlaps = True
-                            break
-
-                if not overlaps:
-                    patch = img.crop((nx, ny, nx + pw, ny + ph))
-                    patch = patch.resize((fw, fh), Image.Resampling.LANCZOS)
-                    patch = patch.convert("L" if grayscale else "RGB")
-                    arr = np.array(patch, dtype=np.float32) / 255.0
-                    X_list.append(arr.flatten())
-                    y_list.append(0)
-                    sample_meta.append({"img_id": img_id, "x": nx, "y": ny, "w": pw, "h": ph})
-                    neg_added += 1
-
-            log_fn(f"    Positive (with aug): {sum(1 for v in y_list if v == 1)}, Negative samples: {neg_added}")
-            if cancelled():
+        # Pass 1: find the anchor in every image with a generic search.
+        _log(state, "Locating the reference anchor in each image...")
+        prepared: list[dict[str, Any]] = []
+        for entry in entries:
+            if state.get("_cancel"):
+                state["status"] = "cancelled"
                 return
+            image = ld.read_image(entry["path"])
+            height, width = image.shape[:2]
+            anchor = ld.detect_anchor(image, config=detector_config)
+            entry = dict(entry)
+            entry.update({"image": image, "width": width, "height": height, "anchor": anchor})
+            prepared.append(entry)
+            _log(
+                state,
+                f"  {entry['filename']}: anchor=({anchor[0]:.0f}, {anchor[1]:.0f}, r={anchor[2]:.0f})",
+            )
 
-        pos_count = sum(1 for v in y_list if v == 1)
-        neg_count_total = len(y_list) - pos_count
+        # The median normalized anchor of the annotated TRAINING images is a
+        # stable prior for pass 2.  Validation/test images never contribute.
+        train_prepared = [prepared[i] for i in train_annotated_idx]
+        short_sides = [min(e["height"], e["width"]) for e in train_prepared]
+        anchor_norm = (
+            float(np.median([e["anchor"][0] / e["width"] for e in train_prepared])),
+            float(np.median([e["anchor"][1] / e["height"] for e in train_prepared])),
+            float(np.median([e["anchor"][2] / side for e, side in zip(train_prepared, short_sides)])),
+        )
 
-        if pos_count == 0:
-            raise ValueError("No positive patches could be extracted. Make sure annotations are within image bounds.")
-        if neg_count_total == 0:
-            log_fn("Warning: No negative samples generated. Training with only positive samples. The model may not generalize well.")
-
-        log_fn(f"Total: {pos_count} positive, {neg_count_total} negative samples")
-        channels = 1 if grayscale else 3
-        log_fn(f"Detection window: {pw}x{ph} px, feature vector size: {fw * fh * channels} ({fw}x{fh}x{channels}), grayscale={grayscale}")
-
-        X = np.array(X_list)
-        y = np.array(y_list)
-
-        predictions_list: list[dict[str, Any]] = []
-        sliding_list: list[dict[str, Any]] = []
-        model: Any = None
-        test_img_ids: dict[str, None] = {}  # ordered set (Python 3.7+)
-        val_acc: float | None = None
-        test_acc: float | None = None
-
-        if val_strategy == "kfold" and len(X) >= k_folds * 2:
-            kf = KFold(n_splits=k_folds, shuffle=shuffle, random_state=random_state if shuffle else None)
-            log_fn(f"K-fold cross-validation ({k_folds} folds)...")
-            fold_metrics: dict[str, list[float]] = {}
-            for fold_idx, (train_idx, val_idx) in enumerate(kf.split(X)):
-                if cancelled():
-                    return
-                X_fold_train, X_fold_val = X[train_idx], X[val_idx]
-                y_fold_train, y_fold_val = y[train_idx], y[val_idx]
-                fold_model = _create_classifier(algorithm, params=params, random_state=random_state)
-                if _cancellable_fit(fold_model, X_fold_train, y_fold_train, cancelled):
-                    return
-                y_fold_pred = fold_model.predict(X_fold_val)
-                for i in range(len(y_fold_val)):
-                    vi = val_idx[i]
-                    meta = sample_meta[vi]
-                    test_img_ids[meta["img_id"]] = None
-                    predictions_list.append({
-                        "image": _feature_to_image(X_fold_val[i], fw, fh),
-                        "actual": int(y_fold_val[i]),
-                        "predicted": int(y_fold_pred[i]),
-                        "image_id": meta["img_id"],
-                        "x": meta["x"], "y": meta["y"],
-                        "w": meta["w"], "h": meta["h"],
-                    })
-                fold_acc = float(fold_model.score(X_fold_val, y_fold_val))
-                fold_metrics.setdefault("val_accuracy", []).append(fold_acc)
-                log_fn(f"  Fold {fold_idx + 1}/{k_folds}: accuracy={fold_acc:.4f}")
-
-            for key, values in fold_metrics.items():
-                if key in ("val_accuracy",):
-                    log_fn(f"  Average {key}: {np.mean(values):.4f} (±{np.std(values):.4f})")
-
-            # Train final model on all data
-            log_fn(f"Training final {algorithm} on full dataset...")
-            model = _create_classifier(algorithm, params=params, random_state=random_state)
-            if _cancellable_fit(model, X, y, cancelled):
+        # Pass 2: refine every anchor using the training prior, then normalize.
+        samples: list[list[tuple[float, float, float, float]]] = []
+        train_annotated_set = set(train_annotated_idx)
+        for index, entry in enumerate(prepared):
+            if state.get("_cancel"):
+                state["status"] = "cancelled"
                 return
-            train_acc = float(model.score(X, y))
-            log_fn(f"Training accuracy: {train_acc:.4f}")
+            expected = (
+                anchor_norm[0] * entry["width"],
+                anchor_norm[1] * entry["height"],
+                anchor_norm[2] * min(entry["height"], entry["width"]),
+            )
+            anchor = ld.detect_anchor(entry["image"], expected, detector_config)
+            entry["anchor"] = anchor
 
-            # Sliding window detection on ALL images for gallery display
-            for img_id, img_info in state["images"].items():
-                if cancelled():
-                    return
-                sliding_list.extend(_sliding_window(model, img_info, pw, ph, fw, fh, img_id, stride, grayscale))
-                test_img_ids[img_id] = None
-            if sliding_list:
-                raw_predictions = list(sliding_list)
-                sliding_list[:] = _nms_merge(sliding_list, iou_threshold=iou_threshold_nms)
-                log_fn(f"Sliding window detection on all {len(state['images'])} images (k-fold), NMS merged {len(raw_predictions)} -> {len(sliding_list)} boxes")
+            if index in train_annotated_set:
+                normalized = [ld.normalize_box(box, anchor) for box in entry["boxes"]]
+                samples.append(ld.canonical_order(normalized))
 
-            algo_label = IMAGE_ALGORITHMS.get(algorithm, {}).get("label", algorithm)
-            metrics: dict[str, Any] = {
-                "algorithm": algo_label,
-                "accuracy": round(train_acc, 4),
-                "val_accuracy": round(float(np.mean(fold_metrics.get("val_accuracy", [0]))), 4),
-                "val_strategy": "kfold",
-                "k_folds": k_folds,
-                "samples": len(X),
-                "positive_samples": pos_count,
-                "negative_samples": neg_count_total,
-                "annotations": total_annotations,
-            }
-        else:
-            if val_strategy == "kfold":
-                log_fn(f"Warning: kfold needs at least {k_folds * 2} samples, got {len(X)}. Falling back to simple split.")
+        layout = ld.make_layout(samples)
+        metadata: dict[str, Any] = {
+            "type": "layout_detector",
+            "count": count,
+            "anchor": {
+                "cx_norm": anchor_norm[0],
+                "cy_norm": anchor_norm[1],
+                "r_norm": anchor_norm[2],
+            },
+            "layout": layout,
+            "detector_config": detector_config,
+        }
 
-            # Simple split: separate by image, not by patch
-            all_img_ids = list(state["images"].keys())
-            n_total = len(all_img_ids)
+        def mean_iou_for(indices: list[int]) -> float | None:
+            values: list[float] = []
+            for index in indices:
+                entry = prepared[index]
+                predicted = ld.predict_boxes_with_anchor(
+                    layout, entry["anchor"], entry["width"], entry["height"]
+                )
+                gt = [tuple(box) for box in entry["boxes"]]
+                score, _, _ = ld.match_and_score(predicted, gt)
+                values.append(score)
+            return float(np.mean(values)) if values else None
 
-            if test_image_ids_param:
-                # Locked images → test set (overrides test_pct)
-                test_img_set = set(test_image_ids_param)
-                train_img_ids = [iid for iid in all_img_ids if iid not in test_img_set]
-                if not train_img_ids:
-                    raise ValueError("No training images found. All images are marked as test.")
+        train_mean = mean_iou_for(train_annotated_idx)
+        val_mean = mean_iou_for(val_eval_idx)
 
-                rng = np.random.RandomState(random_state)
-                train_img_arr = np.array(train_img_ids)
-                rng.shuffle(train_img_arr)
-                n_t = len(train_img_arr)
+        annotation_count = sum(len(entry["boxes"]) for entry in entries)
+        metrics: dict[str, Any] = {
+            "train_images": len(train_idx),
+            "train_annotated": len(train_annotated_idx),
+            "val_images": len(val_idx),
+            "val_annotated": len(val_eval_idx),
+            "test_images": len(test_idx),
+            "images": len(entries),
+            "annotations": annotation_count,
+            "boxes_per_image": count,
+            "mean_iou": round(float(train_mean or 0.0), 3),
+        }
+        if val_mean is not None:
+            metrics["val_mean_iou"] = round(val_mean, 3)
 
-                n_val = min(int(n_total * val_size + 0.5), n_t)
-                n_train = n_t - n_val
+        metadata["metrics"] = metrics
+        metadata["split"] = {
+            "train": len(train_idx),
+            "train_annotated": len(train_annotated_idx),
+            "validation": len(val_idx),
+            "validation_annotated": len(val_eval_idx),
+            "test": len(test_idx),
+            "val_size": round(val_size, 4),
+            "test_size": round(test_size, 4),
+            "shuffle": bool(shuffle),
+            "random_state": int(random_state),
+        }
+        metadata["image_size"] = [
+            int(np.median([e["width"] for e in prepared])),
+            int(np.median([e["height"] for e in prepared])),
+        ]
 
-                val_img_set = set(train_img_arr[:n_val]) if n_val else set()
-                train_img_set = set(train_img_arr[n_val:]) if n_val else set(train_img_arr)
-
-            else:
-                # No locked images — split all images by percentages
-                rng = np.random.RandomState(random_state)
-                all_arr = np.array(all_img_ids)
-                rng.shuffle(all_arr)
-
-                # round (half-up) for test and val (closest integer), train absorbs leftovers
-                n_test = int(n_total * test_size + 0.5)
-                n_val  = int(n_total * val_size + 0.5)
-                # Guard overflow: reduce the one with smaller pct (right-to-left: test > val)
-                if n_test + n_val > n_total:
-                    if val_size <= test_size:
-                        n_val = n_total - n_test
-                    else:
-                        n_test = n_total - n_val
-                n_train = n_total - n_test - n_val
-
-                test_img_set = set(all_arr[:n_test]) if n_test else set()
-                val_img_set = set(all_arr[n_test:n_test + n_val]) if n_val else set()
-                train_img_set = set(all_arr[n_test + n_val:]) if n_test + n_val < n_total else set()
-
-            # Build indices and arrays
-            train_idx = [i for i, m in enumerate(sample_meta) if m["img_id"] in train_img_set]
-            val_idx = [i for i, m in enumerate(sample_meta) if m["img_id"] in val_img_set]
-            test_idx = [i for i, m in enumerate(sample_meta) if m["img_id"] in test_img_set]
-
-            X_train = X[train_idx] if len(train_idx) else np.empty((0, X.shape[1]))
-            y_train = y[train_idx] if len(train_idx) else np.empty(0)
-            X_val = X[val_idx] if len(val_idx) else None
-            y_val = y[val_idx] if len(val_idx) else None
-            X_test = X[test_idx] if len(test_idx) else None
-            y_test = y[test_idx] if len(test_idx) else None
-
-            if test_image_ids_param and not test_idx:
-                log_fn("No pre-extracted test patches (test images have no annotations). Running sliding window detection.")
-
-            ni = len(train_img_set)
-            nv = len(val_img_set)
-            nt = len(test_img_set)
-            log_fn(f"Train: {ni} images ({len(train_idx)} patches), "
-                   f"Val: {nv} images ({len(val_idx)} patches), "
-                   f"Test: {nt} images ({len(test_idx)} patches)")
-
-            log_fn(f"Training {algorithm} classifier...")
-            model = _create_classifier(algorithm, params=params, random_state=random_state)
-            if _cancellable_fit(model, X_train, y_train, cancelled):
-                return
-
-            train_acc = float(model.score(X_train, y_train))
-            log_fn(f"Training accuracy: {train_acc:.4f}")
-
-            if X_val is not None and len(X_val) > 0:
-                y_val_pred = model.predict(X_val)
-                val_acc = float(model.score(X_val, y_val))
-                log_fn(f"Validation accuracy: {val_acc:.4f}")
-
-            # Test evaluation: sliding window detection on held-out test images
-            if test_image_ids_param:
-                test_img_ids.clear()
-                for img_idx, img_id in enumerate(test_image_ids_param):
-                    if cancelled():
-                        return
-                    img_info = state["images"].get(img_id)
-                    if not img_info:
-                        continue
-                    log_fn(f"  Scanning {img_info['filename']} ({img_idx+1}/{len(test_image_ids_param)})...")
-                    dets = _sliding_window(model, img_info, pw, ph, fw, fh, img_id, stride, grayscale)
-                    sliding_list.extend(dets)
-                    test_img_ids[img_id] = None
-                    log_fn(f"    {img_info['filename']}: {len(dets)} raw detections")
-                raw_predictions = list(sliding_list)
-                before = len(sliding_list)
-                sliding_list[:] = _nms_merge(sliding_list, iou_threshold=iou_threshold_nms)
-                after = len(sliding_list)
-                if after < before:
-                    log_fn(f"  NMS merged {before} raw detections into {after} merged boxes")
-                log_fn(f"Sliding window detection on {len(test_image_ids_param)} test images complete")
-            elif test_idx:
-                y_test_pred = model.predict(X_test)
-                test_acc = float(model.score(X_test, y_test))
-                log_fn(f"Test accuracy: {test_acc:.4f}")
-                for i, idx in enumerate(test_idx):
-                    meta = sample_meta[idx]
-                    test_img_ids[meta["img_id"]] = None
-                    predictions_list.append({
-                        "image": _feature_to_image(X_test[i], fw, fh),
-                        "actual": int(y_test[i]),
-                        "predicted": int(y_test_pred[i]),
-                        "image_id": meta["img_id"],
-                        "x": meta["x"], "y": meta["y"],
-                        "w": meta["w"], "h": meta["h"],
-                    })
-
-            algo_label = IMAGE_ALGORITHMS.get(algorithm, {}).get("label", algorithm)
-            metrics = {
-                "algorithm": algo_label,
-                "accuracy": round(train_acc, 4),
-                "samples": len(X),
-                "positive_samples": pos_count,
-                "negative_samples": neg_count_total,
-                "annotations": total_annotations,
-            }
-            if val_acc is not None:
-                metrics["val_accuracy"] = round(val_acc, 4)
-            if test_acc is not None:
-                metrics["test_accuracy"] = round(test_acc, 4)
-
-        state["metrics"] = metrics
-        state["_predictions"] = predictions_list
-        # Combined raw predictions for tuning gallery (sliding window + fold/test patches)
-        state["_raw_predictions"] = predictions_list + sliding_list
-        if val_strategy == "kfold":
-            for img_id in state["images"]:
-                test_img_ids[img_id] = None
-        state["test_image_ids"] = list(test_img_ids.keys())
-
-        if cancelled():
+        if state.get("_cancel"):
+            state["status"] = "cancelled"
             return
+
+        # Save the model used by both in-page preview and the Test page.
         IMGTRAIN_DIR.mkdir(parents=True, exist_ok=True)
         model_path = IMGTRAIN_DIR / f"{session_id}.model"
-        joblib.dump({
-            "model": model,
-            "metadata": {
-                "patch_size": pw,
-                "patch_width": pw,
-                "patch_height": ph,
-                "feature_width": fw,
-                "feature_height": fh,
-                "grayscale": grayscale,
-                "type": "image_detector",
-                "algorithm": algorithm,
-                "metrics": metrics,
-            }
-        }, model_path)
+        joblib.dump({"metadata": metadata}, model_path)
         state["model_path"] = str(model_path)
 
-        log_fn(f"Model saved to {model_path.name}")
+        predictions: list[dict[str, Any]] = []
+        for entry in prepared:
+            predicted = ld.predict_boxes_with_anchor(
+                layout, entry["anchor"], entry["width"], entry["height"]
+            )
+            for box in predicted:
+                predictions.append({
+                    "image_id": entry["image_id"],
+                    "filename": entry["filename"],
+                    "x": float(box[0]),
+                    "y": float(box[1]),
+                    "w": float(box[2] - box[0]),
+                    "h": float(box[3] - box[1]),
+                    "confidence": 1.0,
+                    "sliding_window": True,
+                })
+
+        # Only TEST images are shown in the held-out gallery.  Predictions on
+        # training images are not useful for checking generalization.
+        held_out = [prepared[i]["image_id"] for i in test_idx]
+
+        state["_predictions"] = predictions
+        state["test_image_ids"] = held_out
+        state["metrics"] = metrics
         state["status"] = "done"
 
-    except Exception as e:
+        _log(state, f"Mean IoU on training images: {float(train_mean or 0.0):.3f}")
+        if val_mean is not None:
+            word = "image" if len(val_eval_idx) == 1 else "images"
+            _log(state, f"Validation mean IoU ({len(val_eval_idx)} {word}): {val_mean:.3f}")
+        if test_idx:
+            _log(
+                state,
+                f"Test set: {len(test_idx)} locked image(s) with no annotations; "
+                "inspect their predictions in the held-out gallery.",
+            )
+        _log(state, f"Model ready: {model_path.name}")
+        _log(state, f"Detector always returns exactly {count} boxes per image.")
+
+    except Exception as exc:  # noqa: BLE001 - surfaced to the UI
         state["status"] = "error"
-        state["error"] = str(e)
-        _log(state, f"ERROR: {e}")
+        state["error"] = str(exc)
+        _log(state, f"ERROR: {exc}")
 
 
 def save_to_server(session_id: str, name: str) -> str:
     state = _init_state(session_id)
-    if state["status"] != "done":
+    if state.get("status") != "done":
         raise ValueError("No trained model available")
-
     model_path = state.get("model_path")
     if not model_path or not Path(model_path).exists():
         raise ValueError("Model file not found")
 
-    name = name.strip()
-    if not name:
-        name = "image_model"
+    name = name.strip() or "layout_detector"
     if not name.endswith(".model"):
         name += ".model"
 
@@ -943,29 +538,30 @@ def save_to_server(session_id: str, name: str) -> str:
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(Path(model_path).read_bytes())
 
-    model_data = joblib.load(model_path)
-    meta = model_data.get("metadata", {}) if isinstance(model_data, dict) else {}
-    saved_pw = meta.get("patch_width") or meta.get("patch_size", 32)
-    saved_ph = meta.get("patch_height") or meta.get("patch_size", 32)
-
+    data = joblib.load(model_path)
+    metadata = data.get("metadata", {}) if isinstance(data, dict) else {}
     index_path = MODELS_IMAGE_DIR / "_metrics.json"
-    index: dict = {}
+    index: dict[str, Any] = {}
     if index_path.exists():
-        with open(index_path) as f:
-            index = json.load(f)
-    metrics = state.get("metrics") or {}
-    index[name] = {
-        "type": "image_detector",
-        "patch_size": saved_pw,
-        "patch_width": saved_pw,
-        "patch_height": saved_ph,
-        "task": "image_detection",
-        "algorithm": metrics.get("algorithm", "random_forest"),
-        "accuracy": metrics.get("accuracy"),
-        "val_accuracy": metrics.get("val_accuracy"),
-        "samples": metrics.get("samples"),
-    }
-    with open(index_path, "w") as f:
-        json.dump(index, f, indent=2)
+        try:
+            index = json.loads(index_path.read_text())
+        except Exception:
+            index = {}
 
+    metrics = state.get("metrics") or metadata.get("metrics") or {}
+    index[name] = {
+        "type": "layout_detector",
+        "task": "object_detection",
+        "count": metadata.get("count"),
+        "train_images": metrics.get("train_images"),
+        "train_annotated": metrics.get("train_annotated"),
+        "val_images": metrics.get("val_images"),
+        "val_annotated": metrics.get("val_annotated"),
+        "test_images": metrics.get("test_images"),
+        "images": metrics.get("images"),
+        "annotations": metrics.get("annotations"),
+        "mean_iou": metrics.get("mean_iou"),
+        "val_mean_iou": metrics.get("val_mean_iou"),
+    }
+    index_path.write_text(json.dumps(index, indent=2))
     return str(dest)

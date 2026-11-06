@@ -431,9 +431,21 @@ h1 {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(var(--metric-cols, 4), minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+}
+
+@media (max-width: 900px) {
+  .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .metric-card {
@@ -543,6 +555,22 @@ a.button-secondary:hover {
   border: 1px solid var(--border);
   border-radius: 18px;
   margin-bottom: 16px;
+}
+
+.detector-config-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  .detector-config-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .detector-config-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .preproc-title {
@@ -688,6 +716,10 @@ a.button-secondary:hover {
 .split-bar-labels span {
   color: var(--muted);
 }
+
+.split-bar-labels .split-count {
+  color: var(--text);
+  font-weight: 700;
 }
 
 .checkbox-label input[type="checkbox"],
