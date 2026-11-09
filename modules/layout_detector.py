@@ -312,6 +312,205 @@ def predict_boxes_with_anchor(
     return boxes
 
 
+# Circle search used to keep a learned layout on the objects when the camera
+# moves or when the plate is rotated.  The radius window rejects the small
+# holes inside the wells and the large fixture around them.
+_CIRCLE_PARAM2 = (70, 55, 42)
+_CIRCLE_MIN_RATIO = 0.10
+_CIRCLE_MAX_RATIO = 0.24
+
+
+def _rect_center(
+    box: tuple[float, float, float, float],
+) -> tuple[float, float]:
+    return (box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0
+
+
+def _rect_radius(box: tuple[float, float, float, float]) -> float:
+    return max(1.0, ((box[2] - box[0]) + (box[3] - box[1])) / 4.0)
+
+
+def _rotate_box_180(
+    box: tuple[float, float, float, float], cx: float, cy: float
+) -> tuple[float, float, float, float]:
+    x1, y1, x2, y2 = box
+    return 2 * cx - x2, 2 * cy - y2, 2 * cx - x1, 2 * cy - y1
+
+
+def _circle_candidates(
+    bgr: np.ndarray, min_candidates: int = 6
+) -> tuple[list[tuple[float, float, float]], float]:
+    height, width = bgr.shape[:2]
+    short = float(min(height, width))
+    if short <= 0:
+        return [], short
+
+    scale = min(1.0, 600.0 / short)
+    if scale < 1.0:
+        work = cv2.resize(bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    else:
+        work = bgr
+    gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY) if work.ndim == 3 else work
+    gray = cv2.createCLAHE(clipLimit=2, tileGridSize=(2, 2)).apply(gray)
+    gray = cv2.medianBlur(gray, 5)
+
+    work_short = float(min(work.shape[:2]))
+    min_radius = max(6, int(work_short / 50))
+    max_radius = max(min_radius + 2, int(work_short / 2.5))
+    min_distance = max(8, int(work_short / 9))
+
+    raw: list[tuple[float, float, float]] = []
+    for param2 in _CIRCLE_PARAM2:
+        circles = cv2.HoughCircles(
+            gray,
+            cv2.HOUGH_GRADIENT,
+            dp=1,
+            minDist=min_distance,
+            param1=100,
+            param2=param2,
+            minRadius=min_radius,
+            maxRadius=max_radius,
+        )
+        if circles is not None:
+            for x, y, radius in np.round(circles[0]).astype(float):
+                raw.append((x / scale, y / scale, radius / scale))
+        plausible = sum(
+            1
+            for _x, _y, radius in raw
+            if _CIRCLE_MIN_RATIO * short <= radius <= _CIRCLE_MAX_RATIO * short
+        )
+        if plausible >= min_candidates:
+            break
+
+    picked: list[tuple[float, float, float]] = []
+    for x, y, radius in raw:
+        if not (_CIRCLE_MIN_RATIO * short <= radius <= _CIRCLE_MAX_RATIO * short):
+            continue
+        duplicate = False
+        for index, (px, py, pr) in enumerate(picked):
+            if math.hypot(x - px, y - py) < 0.05 * short and 0.6 < radius / pr < 1.7:
+                duplicate = True
+                if radius > pr:
+                    picked[index] = (x, y, radius)
+                break
+        if not duplicate:
+            picked.append((x, y, radius))
+    return picked, short
+
+
+def _match_centers(
+    candidates: list[tuple[float, float, float]],
+    centers: list[tuple[float, float]],
+    expected_radii: list[float],
+    short: float,
+) -> tuple[dict[int, tuple[float, float, float]], float]:
+    sigma = max(2.0, 0.09 * short)
+    max_distance = 0.13 * short
+    pairs = []
+    for center_index, (cx, cy) in enumerate(centers):
+        expected_radius = expected_radii[center_index]
+        for candidate_index, (x, y, radius) in enumerate(candidates):
+            distance = math.hypot(x - cx, y - cy)
+            if distance > max_distance:
+                continue
+            ratio = radius / expected_radius if expected_radius > 0 else 1.0
+            if ratio < 0.65 or ratio > 1.8:
+                continue
+            cost = (distance / sigma) ** 2
+            cost += 0.5 * math.log(max(ratio, 1e-6)) ** 2
+            pairs.append((cost, distance, center_index, candidate_index, (x, y, radius)))
+
+    pairs.sort(key=lambda item: item[0])
+    used_centers: set[int] = set()
+    used_candidates: set[int] = set()
+    matches: dict[int, tuple[float, float, float]] = {}
+    score = 0.0
+    for _cost, distance, center_index, candidate_index, circle in pairs:
+        if center_index in used_centers or candidate_index in used_candidates:
+            continue
+        used_centers.add(center_index)
+        used_candidates.add(candidate_index)
+        matches[center_index] = circle
+        quotient = distance / sigma
+        if quotient < 1.0:
+            score += 1.0 - quotient * quotient
+    return matches, score
+
+
+def _refine_boxes_with_circles(
+    metadata: dict[str, Any],
+    bgr: np.ndarray,
+    boxes: list[tuple[float, float, float, float]],
+    anchor: tuple[float, float, float],
+) -> list[tuple[float, float, float, float]]:
+    """Snap predicted boxes onto visible circles and try both orientations.
+
+    The learned layout is a rigid template.  A small camera shift or a
+    half-turn of the plate would otherwise leave the template next to the
+    wells.  The template is kept as the fallback, so non-circular objects and
+    frames without a clear circle behave exactly as before.
+    """
+    config = metadata.get("detector_config") or {}
+    if config.get("refine_with_circles", True) is False:
+        return boxes
+
+    height, width = bgr.shape[:2]
+    short = float(min(height, width))
+    if short <= 0:
+        return boxes
+
+    candidates, _short = _circle_candidates(bgr)
+    if not candidates:
+        return boxes
+
+    # Large overview boxes (the "main" box in some projects) are not wells.
+    matchable = [
+        index for index, box in enumerate(boxes)
+        if _rect_radius(box) <= _CIRCLE_MAX_RATIO * short
+    ]
+    if not matchable:
+        return boxes
+
+    cx, cy = anchor[0], anchor[1]
+    variants = [
+        list(boxes),
+        [_rotate_box_180(box, cx, cy) for box in boxes],
+    ]
+
+    best = None
+    for variant_index, variant in enumerate(variants):
+        centers = [_rect_center(variant[index]) for index in matchable]
+        radii = [_rect_radius(variant[index]) for index in matchable]
+        matches, score = _match_centers(candidates, centers, radii, short)
+        score += 0.001 * len(matches)
+        # Prefer the stored orientation when both orientations fit equally.
+        if variant_index == 0:
+            score += 1e-6
+        if best is None or score > best[0]:
+            best = (score, variant, matches)
+
+    _score, variant, matches = best
+    if not matches:
+        return boxes
+
+    refined = list(variant)
+    for match_index, circle in matches.items():
+        box_index = matchable[match_index]
+        rect = variant[box_index]
+        x, y, radius = circle
+        box_w = max(2.0, rect[2] - rect[0])
+        box_h = max(2.0, rect[3] - rect[1])
+        box_w = max(box_w, min(2.0 * radius * 1.04, box_w * 1.6))
+        box_h = max(box_h, min(2.0 * radius * 1.04, box_h * 1.6))
+        snapped = _clip_box(
+            (x - box_w / 2, y - box_h / 2, x + box_w / 2, y + box_h / 2),
+            width,
+            height,
+        )
+        refined[box_index] = snapped if snapped is not None else rect
+    return refined
+
+
 def predict_boxes(
     metadata: dict[str, Any], bgr: np.ndarray
 ) -> tuple[list[dict[str, float]], tuple[float, float, float]]:
@@ -327,6 +526,7 @@ def predict_boxes(
         metadata.get("detector_config"),
     )
     boxes = predict_boxes_with_anchor(layout, anchor, width, height)
+    boxes = _refine_boxes_with_circles(metadata, bgr, boxes, anchor)
     expected_count = int(metadata.get("count", len(layout)))
     if len(boxes) != expected_count:
         # Clipping should not remove a slot, but never return the wrong count.

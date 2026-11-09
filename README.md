@@ -35,6 +35,14 @@ The detector therefore always returns exactly K boxes (K = number of boxes per
 annotated training image), including frames where a pixel model would return
 1 or 2.
 
+The predicted boxes are also snapped to the circles visible in the frame.  Both
+the stored layout and the same layout rotated by 180 degrees are tried, so one
+model handles both plate orientations (one well on top or two wells on top).
+A small camera shift does therefore **not** require retraining: the circle
+search corrects the position inside the model's search window.  Retrain only
+when the objects change shape/size or when the number of boxes per image
+changes.
+
 ### Detector configuration
 
 The defaults use a fixed image point for a centred round object, but the
